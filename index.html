@@ -642,6 +642,12 @@ html[data-theme="light"] .app-modal-card{ background:rgba(250,250,253,0.97); }
 .tela-back{ border:1px solid var(--border-hi); background:var(--panel); color:var(--tx-mid); border-radius:12px; padding:8px 14px; font-size:13px; cursor:pointer; font-family:inherit; }
 .tela-title{ font-family:var(--font-display); font-size:22px; font-weight:600; }
 .tela-body{ max-width:900px; }
+.ff-paste{ background:var(--panel); border:1px solid var(--border-hi); border-radius:14px; padding:12px; }
+.ff-paste textarea{ width:100%; min-height:110px; background:rgba(255,255,255,0.05); border:1px solid var(--border-hi); border-radius:10px; color:var(--tx-hi); padding:10px; font-size:13px; font-family:inherit; resize:vertical; }
+.ff-paste textarea:focus{ outline:none; border-color:var(--violet-2); }
+.ff-cat.ff-cat-row{ margin:0; padding:5px 8px; font-size:11.5px; width:auto; }
+.ff-nums input.ff-need, .ff-nums input[data-k="kcal"].ff-need{ border-color:var(--amber); }
+
 .ff-cat{ width:100%; background:var(--panel); border:1px solid var(--border-hi); border-radius:10px; color:var(--tx-hi); padding:9px 10px; font-size:13px; font-family:inherit; margin-bottom:12px; }
 .ff-row{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:10px; margin-bottom:10px; }
 .ff-line{ display:flex; align-items:center; gap:6px; }
@@ -3656,24 +3662,194 @@ function openDietModal(){
   });
 }
 
-// Adicionar vários alimentos de uma vez (formulário com várias linhas)
+// ============ ADICIONAR ALIMENTOS: cole tudo de uma vez e o app separa e calcula ============
+// Tabela interna APROXIMADA (valores médios por 100 g/ml de tabelas brasileiras; varia conforme o preparo).
+const FOOD_DB = [
+  { k:['arroz integral'], kcal:124, p:2.6, c:25.8, f:1.0, por:125, cs:25 },
+  { k:['arroz'], kcal:128, p:2.5, c:28.1, f:0.2, por:125, cs:25 },
+  { k:['feijao preto'], kcal:77, p:4.5, c:14, f:0.5, por:100, concha:100 },
+  { k:['feijao','feijoes'], kcal:76, p:4.8, c:13.6, f:0.5, por:100, concha:100 },
+  { k:['macarrao','espaguete','massa','miojo','talharim'], kcal:125, p:4.5, c:25, f:0.9, por:140 },
+  { k:['frango grelhado','peito de frango grelhado'], kcal:159, p:32, c:0, f:2.5, por:100 },
+  { k:['frango','peito de frango','file de frango'], kcal:165, p:31, c:0, f:3.6, por:100 },
+  { k:['carne moida'], kcal:212, p:26.7, c:0, f:10.9, por:100 },
+  { k:['carne','bife','patinho','alcatra','file','acem'], kcal:220, p:32, c:0, f:9, por:100 },
+  { k:['peixe','tilapia'], kcal:128, p:26, c:0, f:2.7, por:120 },
+  { k:['ovo frito'], kcal:240, p:15.6, c:1.2, f:18.6, un:50 },
+  { k:['ovo','ovos'], kcal:146, p:13.3, c:0.6, f:9.5, un:50 },
+  { k:['pao de forma'], kcal:260, p:8.5, c:49, f:3.5, un:25, fatia:25 },
+  { k:['pao integral'], kcal:253, p:9.4, c:49.9, f:3.7, un:25, fatia:25 },
+  { k:['pao frances','pao de sal','pao','paes','paozinho'], kcal:300, p:8, c:58.6, f:3.1, un:50, fatia:25 },
+  { k:['cuscuz'], kcal:113, p:2.2, c:25.3, f:0.7, por:130 },
+  { k:['banana'], kcal:98, p:1.3, c:26, f:0.1, un:80 },
+  { k:['maca'], kcal:56, p:0.3, c:15.2, f:0, un:130 },
+  { k:['laranja'], kcal:37, p:1, c:8.9, f:0.1, un:130 },
+  { k:['mamao','papaia'], kcal:40, p:0.5, c:10.4, f:0.1, por:150 },
+  { k:['abacate'], kcal:96, p:1.2, c:6, f:8.4, por:100, cs:25 },
+  { k:['uva'], kcal:53, p:0.7, c:13.6, f:0.2, por:100 },
+  { k:['manga'], kcal:64, p:0.4, c:16.7, f:0.3, por:150 },
+  { k:['melancia'], kcal:33, p:0.9, c:8.1, f:0, por:200 },
+  { k:['abacaxi'], kcal:48, p:0.9, c:12.3, f:0.1, por:100 },
+  { k:['morango'], kcal:30, p:0.9, c:6.8, f:0.3, por:100 },
+  { k:['leite desnatado'], kcal:35, p:3.4, c:5, f:0.1, por:200, copo:200 },
+  { k:['leite'], kcal:61, p:3.2, c:4.6, f:3.3, por:200, copo:200, xic:180 },
+  { k:['iogurte'], kcal:61, p:3.5, c:4.7, f:3.3, por:170 },
+  { k:['queijo minas frescal','queijo minas'], kcal:264, p:17.4, c:3.2, f:20.2, fatia:30, por:30 },
+  { k:['queijo mussarela','mussarela','mucarela'], kcal:330, p:22.6, c:3, f:25, fatia:20, por:20 },
+  { k:['queijo prato','queijo'], kcal:360, p:22.7, c:0, f:29, fatia:15, por:15 },
+  { k:['presunto','peito de peru'], kcal:94, p:14.4, c:1.4, f:3.1, fatia:15, por:30 },
+  { k:['requeijao'], kcal:257, p:9.6, c:2.4, f:23.4, cs:30, por:30 },
+  { k:['manteiga'], kcal:726, p:0.4, c:0.1, f:82, cs:15, cc:5, por:10 },
+  { k:['azeite','oleo'], kcal:884, p:0, c:0, f:100, cs:13, cc:4, por:13 },
+  { k:['acucar'], kcal:387, p:0, c:99.5, f:0, cs:12, cc:4, por:10 },
+  { k:['mel'], kcal:309, p:0.4, c:84, f:0, cs:20, cc:7, por:20 },
+  { k:['cafe'], kcal:2, p:0.1, c:0.3, f:0, por:50, xic:50, copo:200 },
+  { k:['suco de laranja','suco'], kcal:45, p:0.7, c:10.4, f:0.2, por:200, copo:200 },
+  { k:['refrigerante','coca','coca cola','guarana','fanta'], kcal:42, p:0, c:10.6, f:0, por:350, lata:350, copo:200 },
+  { k:['batata doce'], kcal:77, p:0.6, c:18.4, f:0.1, por:130 },
+  { k:['batata'], kcal:52, p:1.2, c:11.9, f:0, por:130 },
+  { k:['mandioca','aipim','macaxeira'], kcal:125, p:0.6, c:30.1, f:0.3, por:100 },
+  { k:['aveia'], kcal:394, p:13.9, c:66.6, f:8.5, cs:15, por:30 },
+  { k:['pasta de amendoim'], kcal:588, p:25, c:20, f:50, cs:15, por:15 },
+  { k:['alface'], kcal:14, p:1.3, c:2, f:0.2, por:50 },
+  { k:['tomate'], kcal:15, p:1.1, c:3.1, f:0.2, un:100, por:100 },
+  { k:['cenoura'], kcal:34, p:1.3, c:7.7, f:0.2, por:80 },
+  { k:['brocolis'], kcal:25, p:2.1, c:4.4, f:0.5, por:100 },
+  { k:['salada'], kcal:20, p:1.2, c:3.5, f:0.2, por:100 }
+];
+function normTxt(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim(); }
+function findFood(nameNorm){
+  let best = null, bl = 0;
+  FOOD_DB.forEach(fd=> fd.k.forEach(key=>{
+    const re = new RegExp('(^|\\s)'+key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(s|es)?(\\s|$)');
+    if(re.test(nameNorm) && key.length > bl){ best = fd; bl = key.length; }
+  }));
+  return best;
+}
+const NUM_WORDS = { um:1, uma:1, dois:2, duas:2, tres:3, quatro:4, cinco:5, meio:0.5, meia:0.5 };
+function toNum(tok){
+  const t = normTxt(tok);
+  if(NUM_WORDS[t] != null) return NUM_WORDS[t];
+  if(t.includes('/')){ const [x,y] = t.split('/'); return (parseFloat(x)||0)/(parseFloat(y)||1); }
+  return parseFloat(t);
+}
+function cap1(t){ return t ? t.charAt(0).toUpperCase()+t.slice(1) : t; }
+function parseFoodItem(raw){
+  let t = String(raw).replace(/^[\-•*·–]+\s*/,'').replace(/[()]/g,' ').replace(/\s+/g,' ').trim();
+  if(!t) return null;
+  let kcalX = null, grams = null, count = null, unit = null, m;
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:kcal|cal)\b/i);
+  if(m){ kcalX = parseFloat(m[1]); t = t.replace(m[0],' '); }
+  m = t.match(/(\d+(?:\.\d+)?)\s*(kg|gramas?|gr|g|ml|litros?|l)\b/i);
+  if(m){ let v = parseFloat(m[1]); const u = m[2].toLowerCase(); if(u==='kg' || u.startsWith('litro') || u==='l') v *= 1000; grams = v; t = t.replace(m[0],' '); }
+  t = t.replace(/\s+/g,' ').trim();
+  const lead = t.match(/^(\d+(?:\.\d+)?(?:\/\d+)?|um|uma|dois|duas|tr[eê]s|quatro|cinco|meio|meia)\s+(.*)$/i);
+  if(lead){
+    count = toNum(lead[1]); t = lead[2];
+    const um = t.match(/^(colheres?|colher|x[ií]caras?|copos?|fatias?|unidades?|unid\.?|un|conchas?|latas?|peda[cç]os?|por[cç][aã]o|por[cç][oõ]es|potes?)\b\s*(?:de\s+(sopa|ch[aá]|sobremesa|caf[eé]))?\s*(?:de\s+)?(.*)$/i);
+    if(um){ unit = normTxt(um[1]); if(um[2]) unit += ' '+normTxt(um[2]); t = um[3]; }
+  } else if(grams == null){
+    const tail = t.match(/^(.*?)\s+(\d+(?:\.\d+)?)$/);
+    if(tail){ const v = parseFloat(tail[2]); if(v >= 20) grams = v; else count = v; t = tail[1]; }
+  }
+  t = t.replace(/^de\s+/i,'').replace(/[-–:]+$/,'').trim();
+  return { name:t, kcalX, grams, count, unit };
+}
+function newFoodRow(cat){ return { name:'', grams:'', kcal:'', p:'', c:'', f:'', per100:null, cat:cat||'', note:'' }; }
+function computeFoodRow(it, cat, defaultPortion){
+  const fd = it.name ? findFood(normTxt(it.name)) : null;
+  const row = newFoodRow(cat);
+  row.name = cap1(it.name);
+  let g = null;
+  if(it.grams != null){ g = it.grams; }
+  else if(fd){
+    if(it.count != null && !defaultPortion){
+      const u = it.unit || '';
+      let base = null;
+      if(!u || u.startsWith('unid') || u === 'un') base = fd.un;
+      else if(u.startsWith('fatia')) base = fd.fatia || fd.un;
+      else if(u.startsWith('colher')) base = u.includes('cha') ? (fd.cc||5) : u.includes('sobremesa') ? 10 : u.includes('cafe') ? 2.5 : (fd.cs||15);
+      else if(u.startsWith('xicara')) base = fd.xic || 150;
+      else if(u.startsWith('copo')) base = fd.copo || 200;
+      else if(u.startsWith('concha')) base = fd.concha || 100;
+      else if(u.startsWith('lata')) base = fd.lata || 350;
+      else if(u.startsWith('peda')) base = fd.un || 50;
+      else if(u.startsWith('porc') || u.startsWith('pote')) base = fd.por || 100;
+      if(base == null) base = fd.por || 100;
+      g = it.count * base;
+    } else { g = fd.un || fd.por || 100; row.note = 'porção padrão ('+Math.round(g)+' g) — ajuste os gramas se quiser'; }
+  }
+  if(fd){
+    row.per100 = { kcal100g:fd.kcal, protein100g:fd.p, carb100g:fd.c, fat100g:fd.f };
+    if(g != null){
+      const f = g/100;
+      row.grams = String(Math.round(g));
+      row.kcal = String(Math.round(fd.kcal*f));
+      row.p = String(Math.round(fd.p*f*10)/10); row.c = String(Math.round(fd.c*f*10)/10); row.f = String(Math.round(fd.f*f*10)/10);
+    }
+    if(!row.note) row.note = '≈ valores médios aproximados';
+  } else {
+    if(g != null) row.grams = String(Math.round(g));
+    row.note = 'Não achei na tabela interna — digite as calorias ou use o 🔍';
+  }
+  if(it.kcalX != null){ row.kcal = String(Math.round(it.kcalX)); row.per100 = null; row.note = 'calorias que você informou'; }
+  return row;
+}
+function parseFoodText(text, defCat){
+  let cat = defCat || MEAL_CATEGORIES[0];
+  const out = [];
+  String(text||'').replace(/(\d),(\d)/g,'$1.$2').split(/\n+/).forEach(line=>{
+    line = line.trim(); if(!line) return;
+    const norm = normTxt(line);
+    let mm = norm.match(/^(cafe da manha|almoco|jantar|janta|ceia|lanche(?: da tarde| da manha| da noite)?)\b\s*[:\-–]?\s*(.*)$/)
+          || norm.match(/^(cafe|manha|outro|outros)\s*[:\-–]\s*(.*)$/);
+    let rest = line;
+    if(mm){
+      const key = mm[1];
+      cat = (key.startsWith('cafe') || key === 'manha') ? 'Café da manhã' : key === 'almoco' ? 'Almoço' : key.startsWith('lanche') ? 'Lanche' : (key === 'jantar' || key === 'janta') ? 'Jantar' : 'Outro';
+      rest = line.slice(norm.length - mm[2].length);
+    }
+    rest.split(/\s*(?:,|;|\+|\s+e\s+)\s*/i).forEach(piece=>{
+      const it = parseFoodItem(piece);
+      if(!it || !it.name) return;
+      const parts = it.name.split(/\s+com\s+/i);
+      if(parts.length === 2 && findFood(normTxt(parts[0])) && findFood(normTxt(parts[1]))){
+        out.push(computeFoodRow({ ...it, name:parts[0] }, cat, false));
+        out.push(computeFoodRow({ name:parts[1], kcalX:null, grams:null, count:null, unit:null }, cat, true));
+      } else {
+        out.push(computeFoodRow(it, cat, false));
+      }
+    });
+  });
+  return out;
+}
+
 function addFoodFlow(category, saveAsTemplate){ openAddFoodsModal(category, saveAsTemplate); }
-function newFoodRow(){ return { name:'', grams:'', kcal:'', p:'', c:'', f:'', per100:null }; }
 function openAddFoodsModal(category, saveAsTemplate){
-  let rows = [ newFoodRow(), newFoodRow(), newFoodRow() ];
   let cat = category || MEAL_CATEGORIES[0];
+  let rows = [];
+  let pasteText = '';
+  let info = '';
   function readRows(){
-    const list = appModalBody.querySelectorAll('.ff-row');
-    list.forEach((el, i)=>{
+    appModalBody.querySelectorAll('.ff-row').forEach((el, i)=>{
       const r = rows[i]; if(!r) return;
-      el.querySelectorAll('input[data-k]').forEach(inp=>{ r[inp.dataset.k] = inp.value; });
+      el.querySelectorAll('[data-k]').forEach(inp=>{ r[inp.dataset.k] = inp.value; });
     });
     const sel = document.getElementById('ffCat'); if(sel) cat = sel.value;
+    const ta = document.getElementById('ffText'); if(ta) pasteText = ta.value;
   }
+  function catOptions(cur){ return MEAL_CATEGORIES.map(c=>`<option value="${mEsc(c)}" ${c===cur?'selected':''}>${mEsc(c)}</option>`).join(''); }
   function render(){
+    if(!rows.length) rows = [ newFoodRow(cat) ];
     const html = `
-      <div style="font-size:12px; color:var(--tx-low); margin-bottom:6px;">${saveAsTemplate ? 'Salvar no cardápio padrão — categoria' : 'Categoria'}</div>
-      <select id="ffCat" class="ff-cat">${MEAL_CATEGORIES.map(c=>`<option value="${mEsc(c)}" ${c===cat?'selected':''}>${mEsc(c)}</option>`).join('')}</select>
+      <div class="ff-paste">
+        <div style="font-size:13px; font-weight:600; margin-bottom:6px;">✨ Cole ou digite tudo de uma vez</div>
+        <textarea id="ffText" placeholder="Ex:&#10;Café da manhã: 2 ovos, 1 pão francês, café&#10;Almoço: arroz 150g, feijão, frango grelhado 120g, salada&#10;Lanche: 1 banana, 1 iogurte">${mEsc(pasteText)}</textarea>
+        <div class="ghost-btn primary" id="ffParse" style="margin-top:8px;">Interpretar e preencher</div>
+        ${info ? `<div class="ff-note" style="margin-top:8px;">${info}</div>` : ''}
+      </div>
+      <div style="font-size:12px; color:var(--tx-low); margin:14px 0 6px;">${saveAsTemplate ? 'Salvar no cardápio padrão — ' : ''}categoria dos itens novos / sem título</div>
+      <select id="ffCat" class="ff-cat">${catOptions(cat)}</select>
       ${rows.map((r,i)=>`<div class="ff-row" data-r="${i}">
         <div class="ff-line">
           <input class="ff-name" data-k="name" value="${mEsc(r.name)}" placeholder="Alimento (ex: arroz, banana)">
@@ -3682,29 +3858,40 @@ function openAddFoodsModal(category, saveAsTemplate){
         </div>
         <div class="ff-line ff-nums">
           <input data-k="grams" inputmode="decimal" value="${mEsc(r.grams)}" placeholder="g">
-          <input data-k="kcal" inputmode="decimal" value="${mEsc(r.kcal)}" placeholder="kcal">
+          <input data-k="kcal" inputmode="decimal" value="${mEsc(r.kcal)}" placeholder="kcal" ${(!String(r.kcal).trim() && r.name.trim()) ? 'class="ff-need"' : ''}>
           <input data-k="p" inputmode="decimal" value="${mEsc(r.p)}" placeholder="P">
           <input data-k="c" inputmode="decimal" value="${mEsc(r.c)}" placeholder="C">
           <input data-k="f" inputmode="decimal" value="${mEsc(r.f)}" placeholder="G">
         </div>
-        <div class="ff-results"></div>
+        <div class="ff-line"><select class="ff-cat ff-cat-row" data-k="cat">${catOptions(r.cat || cat)}</select></div>
+        <div class="ff-results">${r.note ? `<div class="ff-note">${mEsc(r.note)}</div>` : ''}</div>
       </div>`).join('')}
       <div class="add-work-btn" id="ffAddRow" style="margin:4px 0 12px;">+ Adicionar outro alimento</div>
       <div style="display:flex; gap:10px;">
         <div class="ghost-btn" id="ffCancel">Cancelar</div>
         <div class="ghost-btn primary" id="ffSave">${saveAsTemplate ? 'Salvar tudo no cardápio' : 'Adicionar tudo'}</div>
       </div>
-      <div style="font-size:11px; color:var(--tx-low); margin-top:10px;">Preencha o nome e as calorias (kcal) de cada alimento. P, C e G (proteína, carboidrato, gordura em gramas) são opcionais. O 🔍 busca as calorias sozinho; se não achar, é só digitar.</div>`;
+      <div style="font-size:11px; color:var(--tx-low); margin-top:10px;">As calorias vêm de uma tabela interna com valores médios (aproximados) — confira antes de salvar. P, C e G (proteína, carboidrato, gordura) são opcionais.</div>`;
     openModal(saveAsTemplate ? '📋 Novo no cardápio padrão' : '🍽️ Adicionar alimentos', html);
     bind();
   }
   function bind(){
-    document.getElementById('ffAddRow').addEventListener('click', ()=>{ readRows(); rows.push(newFoodRow()); render(); const all = appModalBody.querySelectorAll('.ff-name'); if(all.length) all[all.length-1].focus(); });
+    document.getElementById('ffParse').addEventListener('click', ()=>{
+      readRows();
+      const parsed = parseFoodText(pasteText, cat);
+      if(!parsed.length){ info = 'Não consegui identificar alimentos nesse texto. Escreva um por linha ou separados por vírgula.'; render(); return; }
+      rows = rows.filter(r=> r.name.trim() || String(r.kcal).trim()).concat(parsed);
+      const semKcal = parsed.filter(r=> !String(r.kcal).trim()).length;
+      info = '✓ '+parsed.length+(parsed.length>1?' itens interpretados':' item interpretado')+'.'+(semKcal ? ' '+semKcal+' sem calorias (em destaque) — digite ou use o 🔍.' : ' Confira os valores e toque em "Adicionar tudo".');
+      pasteText = '';
+      render();
+    });
+    document.getElementById('ffAddRow').addEventListener('click', ()=>{ readRows(); rows.push(newFoodRow(cat)); render(); const all = appModalBody.querySelectorAll('.ff-name'); if(all.length) all[all.length-1].focus(); });
     document.getElementById('ffCancel').addEventListener('click', ()=> openDietModal());
     document.getElementById('ffSave').addEventListener('click', save);
     appModalBody.querySelectorAll('.ff-row').forEach(el=>{
       const i = +el.dataset.r;
-      el.querySelector('[data-act="del"]').addEventListener('click', ()=>{ readRows(); rows.splice(i,1); if(!rows.length) rows.push(newFoodRow()); render(); });
+      el.querySelector('[data-act="del"]').addEventListener('click', ()=>{ readRows(); rows.splice(i,1); render(); });
       el.querySelector('[data-act="search"]').addEventListener('click', ()=> searchRow(i, el));
       el.querySelector('input[data-k="grams"]').addEventListener('input', ()=>{
         const r = rows[i]; if(!r.per100) return;
@@ -3729,10 +3916,10 @@ function openAddFoodsModal(category, saveAsTemplate){
     box.innerHTML = '<div class="ff-note">Buscando…</div>';
     const results = await searchFoodCalories(name);
     if(!results.length){ box.innerHTML = '<div class="ff-note">Não achei agora (ou sem conexão). Digite as calorias à mão.</div>'; return; }
-    box.innerHTML = results.map((p,k)=>`<div class="ff-result" data-k="${k}"><span>${mEsc(p.product_name)}</span><b>${Math.round(p.kcal100g)} kcal/100g</b></div>`).join('');
+    box.innerHTML = results.map((p,k)=>`<div class="ff-result" data-k2="${k}"><span>${mEsc(p.product_name)}</span><b>${Math.round(p.kcal100g)} kcal/100g</b></div>`).join('');
     box.querySelectorAll('.ff-result').forEach(rEl=>{
       rEl.addEventListener('click', ()=>{
-        const p = results[+rEl.dataset.k];
+        const p = results[+rEl.dataset.k2];
         let g = gNum(el.querySelector('input[data-k="grams"]').value);
         if(!(g > 0)){ g = 100; el.querySelector('input[data-k="grams"]').value = 100; }
         rows[i].per100 = { kcal100g:p.kcal100g, protein100g:p.protein100g, carb100g:p.carb100g, fat100g:p.fat100g };
@@ -3750,10 +3937,10 @@ function openAddFoodsModal(category, saveAsTemplate){
       showToast(!bad.name.trim() ? 'Falta o nome de um alimento' : 'Faltam as calorias de "'+bad.name.trim()+'"');
       const idx = rows.indexOf(bad);
       const el = appModalBody.querySelectorAll('.ff-row')[idx];
-      if(el) el.querySelector(bad.name.trim() ? 'input[data-k="kcal"]' : 'input[data-k="name"]').focus();
+      if(el){ const f = el.querySelector(bad.name.trim() ? 'input[data-k="kcal"]' : 'input[data-k="name"]'); f.classList.add('ff-need'); f.focus(); }
       return;
     }
-    const entries = filled.map(r=>({ name:r.name.trim(), kcal:Math.round(gNum(r.kcal)), protein:gNum(r.p), carb:gNum(r.c), fat:gNum(r.f), category:cat }));
+    const entries = filled.map(r=>({ name:r.name.trim(), kcal:Math.round(gNum(r.kcal)), protein:gNum(r.p), carb:gNum(r.c), fat:gNum(r.f), category:(r.cat || cat) }));
     if(saveAsTemplate){
       entries.forEach(e=> dietTemplate.push(e)); saveDietTemplate();
       showToast('✓ '+entries.length+(entries.length>1?' itens salvos':' item salvo')+' no cardápio padrão');
@@ -3766,7 +3953,7 @@ function openAddFoodsModal(category, saveAsTemplate){
     openDietModal();
   }
   render();
-  const first = appModalBody.querySelector('.ff-name'); if(first) first.focus();
+  const ta = document.getElementById('ffText'); if(ta) ta.focus();
 }
 
 function getHealthHistory(days){
