@@ -3594,7 +3594,7 @@ function openDietModal(){
       meals.forEach((m)=>{
         const globalIdx = healthState.caloriasMeals.indexOf(m);
         html += `<div class="diet-meal-row">
-          <span style="flex:1;">${m.name}</span>
+          <span style="flex:1;">${mEsc(m.name)}${m.grams ? ` <span style="color:var(--tx-low);">· ${m.grams} g</span>` : ''}</span>
           <span class="diet-meal-macros">${m.kcal}kcal · P${Math.round(m.protein||0)} C${Math.round(m.carb||0)} G${Math.round(m.fat||0)}</span>
           <span class="diet-meal-del" data-idx="${globalIdx}" title="Remover">✕</span>
         </div>`;
@@ -3604,19 +3604,26 @@ function openDietModal(){
   });
 
   html += `<div class="diet-cat-title" style="margin-top:20px;">📋 Cardápio padrão (toque pra adicionar hoje)</div>`;
-  if(dietTemplate.length > 1){
-    html += `<div class="add-work-btn" id="addAllTemplateBtn" style="margin:0 0 8px;">＋ Adicionar tudo de hoje (${dietTemplate.length} itens)</div>`;
-  }
   if(!dietTemplate.length){
-    html += `<div class="diet-empty">Nenhum item salvo ainda. Adicione alimentos e salve como padrão.</div>`;
+    html += `<div class="diet-empty">Nenhum item salvo ainda. Use "+ Novo item no cardápio padrão" e cole o cardápio inteiro, com as quantidades.</div>`;
   } else {
-    dietTemplate.forEach((t,i)=>{
-      html += `<div class="diet-template-row" data-template="${i}">
+    const totalT = dietTemplate.reduce((acc,t)=> acc + (t.kcal||0), 0);
+    html += `<div class="ff-note" style="margin:0 0 8px;">Cardápio completo: ${dietTemplate.length} itens · ${totalT} kcal</div>`;
+    html += `<div class="add-work-btn" id="addAllTemplateBtn" style="margin:0 0 4px;">＋ Adicionar o cardápio completo de hoje</div>`;
+    const cats = MEAL_CATEGORIES.concat(Array.from(new Set(dietTemplate.map(t=>t.category||'Outro'))).filter(c=>!MEAL_CATEGORIES.includes(c)));
+    cats.forEach(cat=>{
+      const items = dietTemplate.map((t,i)=>({t,i})).filter(x=> (x.t.category||'Outro') === cat);
+      if(!items.length) return;
+      const sub = items.reduce((acc,x)=> acc + (x.t.kcal||0), 0);
+      html += `<div class="diet-cat-title" style="margin-top:14px; display:flex; justify-content:space-between; align-items:center; gap:8px;"><span style="white-space:nowrap;">${mEsc(cat)} · ${sub} kcal</span><span class="panel-link" data-addcattemplate="${mEsc(cat)}" style="text-transform:none; cursor:pointer; white-space:nowrap;">＋ adicionar</span></div>`;
+      items.forEach(({t,i})=>{
+        html += `<div class="diet-template-row" data-template="${i}">
         <span class="diet-template-add">＋</span>
-        <span style="flex:1;">${t.name} <span style="color:var(--tx-low);">(${t.category})</span></span>
+        <span style="flex:1;">${mEsc(t.name)}${t.grams ? ` <span style="color:var(--tx-low);">· ${t.grams} g</span>` : ''}</span>
         <span class="diet-meal-macros">${t.kcal}kcal</span>
         <span class="diet-template-del" data-tdel="${i}" title="Remover do cardápio">🗑</span>
       </div>`;
+      });
     });
   }
   html += `<div class="add-work-btn" id="addTemplateBtn" style="margin-top:8px;">+ Novo item no cardápio padrão</div>`;
@@ -3638,7 +3645,7 @@ function openDietModal(){
     row.addEventListener('click', e=>{
       if(e.target.closest('.diet-template-del')) return;
       const t = dietTemplate[+row.dataset.template];
-      healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category });
+      healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category, grams:t.grams||null });
       saveHealthState(); renderHealthPanel(); bumpXp(5);
       showToast('✓ "'+t.name+'" adicionado de hoje · +5 XP');
       openDietModal();
@@ -3655,10 +3662,20 @@ function openDietModal(){
   document.getElementById('addTemplateBtn').addEventListener('click', ()=> addFoodFlow(null, true));
   const addAllBtn = document.getElementById('addAllTemplateBtn');
   if(addAllBtn) addAllBtn.addEventListener('click', ()=>{
-    dietTemplate.forEach(t=> healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category }));
+    dietTemplate.forEach(t=> healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category, grams:t.grams||null }));
     saveHealthState(); renderHealthPanel(); bumpXp(5);
-    showToast('✓ '+dietTemplate.length+' itens adicionados de hoje · +5 XP');
+    showToast('✓ cardápio completo adicionado ('+dietTemplate.length+' itens) · +5 XP');
     openDietModal();
+  });
+  appModalBody.querySelectorAll('[data-addcattemplate]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const cat = btn.dataset.addcattemplate;
+      const items = dietTemplate.filter(t=> (t.category||'Outro') === cat);
+      items.forEach(t=> healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category, grams:t.grams||null }));
+      saveHealthState(); renderHealthPanel(); bumpXp(5);
+      showToast('✓ '+cat+' adicionado ('+items.length+(items.length>1?' itens':' item')+') · +5 XP');
+      openDietModal();
+    });
   });
 }
 
@@ -3749,8 +3766,13 @@ function parseFoodItem(raw){
     const um = t.match(/^(colheres?|colher|x[ií]caras?|copos?|fatias?|unidades?|unid\.?|un|conchas?|latas?|peda[cç]os?|por[cç][aã]o|por[cç][oõ]es|potes?)\b\s*(?:de\s+(sopa|ch[aá]|sobremesa|caf[eé]))?\s*(?:de\s+)?(.*)$/i);
     if(um){ unit = normTxt(um[1]); if(um[2]) unit += ' '+normTxt(um[2]); t = um[3]; }
   } else if(grams == null){
-    const tail = t.match(/^(.*?)\s+(\d+(?:\.\d+)?)$/);
-    if(tail){ const v = parseFloat(tail[2]); if(v >= 20) grams = v; else count = v; t = tail[1]; }
+    const tail = t.match(/^(.*?)\s+(\d+(?:\.\d+)?)\s*(unidades?|unid\.?|un|fatias?|peda[cç]os?|potes?|por[cç][aã]o|por[cç][oõ]es|latas?|copos?|conchas?)?$/i);
+    if(tail){
+      const v = parseFloat(tail[2]);
+      if(tail[3]){ count = v; unit = normTxt(tail[3]); }
+      else if(v >= 20) grams = v; else count = v;
+      t = tail[1];
+    }
   }
   t = t.replace(/^de\s+/i,'').replace(/[-–:]+$/,'').trim();
   return { name:t, kcalX, grams, count, unit };
@@ -3857,7 +3879,7 @@ function openAddFoodsModal(category, saveAsTemplate){
           <span class="ff-btn" data-act="del" title="Remover linha">✕</span>
         </div>
         <div class="ff-line ff-nums">
-          <input data-k="grams" inputmode="decimal" value="${mEsc(r.grams)}" placeholder="g">
+          <input data-k="grams" inputmode="decimal" value="${mEsc(r.grams)}" placeholder="g" title="Quantidade em gramas">
           <input data-k="kcal" inputmode="decimal" value="${mEsc(r.kcal)}" placeholder="kcal" ${(!String(r.kcal).trim() && r.name.trim()) ? 'class="ff-need"' : ''}>
           <input data-k="p" inputmode="decimal" value="${mEsc(r.p)}" placeholder="P">
           <input data-k="c" inputmode="decimal" value="${mEsc(r.c)}" placeholder="C">
@@ -3940,7 +3962,7 @@ function openAddFoodsModal(category, saveAsTemplate){
       if(el){ const f = el.querySelector(bad.name.trim() ? 'input[data-k="kcal"]' : 'input[data-k="name"]'); f.classList.add('ff-need'); f.focus(); }
       return;
     }
-    const entries = filled.map(r=>({ name:r.name.trim(), kcal:Math.round(gNum(r.kcal)), protein:gNum(r.p), carb:gNum(r.c), fat:gNum(r.f), category:(r.cat || cat) }));
+    const entries = filled.map(r=>({ name:r.name.trim(), kcal:Math.round(gNum(r.kcal)), protein:gNum(r.p), carb:gNum(r.c), fat:gNum(r.f), category:(r.cat || cat), grams:(gNum(r.grams) > 0 ? Math.round(gNum(r.grams)) : null) }));
     if(saveAsTemplate){
       entries.forEach(e=> dietTemplate.push(e)); saveDietTemplate();
       showToast('✓ '+entries.length+(entries.length>1?' itens salvos':' item salvo')+' no cardápio padrão');
