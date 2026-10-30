@@ -642,6 +642,17 @@ html[data-theme="light"] .app-modal-card{ background:rgba(250,250,253,0.97); }
 .tela-back{ border:1px solid var(--border-hi); background:var(--panel); color:var(--tx-mid); border-radius:12px; padding:8px 14px; font-size:13px; cursor:pointer; font-family:inherit; }
 .tela-title{ font-family:var(--font-display); font-size:22px; font-weight:600; }
 .tela-body{ max-width:900px; }
+.pk-row{ display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--border); border-radius:12px; margin-bottom:8px; cursor:pointer; background:var(--panel); }
+.pk-row.on{ border-color:var(--violet-2); background:rgba(139,107,240,0.12); }
+.pk-box{ width:18px; height:18px; flex-shrink:0; border-radius:6px; border:1.5px solid var(--border-hi); display:flex; align-items:center; justify-content:center; font-size:11px; color:#fff; }
+.pk-row.on .pk-box{ background:linear-gradient(140deg, var(--violet), var(--violet-2)); border-color:transparent; }
+.pk-name{ flex:1; min-width:0; font-size:13.5px; }
+.pk-g{ width:54px; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:8px; color:var(--tx-hi); padding:5px 4px; font-size:12px; text-align:center; font-family:var(--font-mono); }
+.pk-gl{ font-size:11px; color:var(--tx-low); margin-left:-4px; }
+.pk-kcal{ font-family:var(--font-mono); font-size:11px; color:var(--tx-low); white-space:nowrap; }
+.ff-keep{ display:flex; align-items:flex-start; gap:8px; font-size:12px; color:var(--tx-mid); margin:0 0 12px; cursor:pointer; }
+.ff-keep input{ margin-top:2px; }
+
 .ff-paste{ background:var(--panel); border:1px solid var(--border-hi); border-radius:14px; padding:12px; }
 .ff-paste textarea{ width:100%; min-height:110px; background:rgba(255,255,255,0.05); border:1px solid var(--border-hi); border-radius:10px; color:var(--tx-hi); padding:10px; font-size:13px; font-family:inherit; resize:vertical; }
 .ff-paste textarea:focus{ outline:none; border-color:var(--violet-2); }
@@ -3603,30 +3614,20 @@ function openDietModal(){
     html += `<div class="add-work-btn" data-addcat="${cat}" style="margin:8px 0 4px;">+ Adicionar em ${cat}</div>`;
   });
 
-  html += `<div class="diet-cat-title" style="margin-top:20px;">📋 Cardápio padrão (toque pra adicionar hoje)</div>`;
+  html += `<div class="diet-cat-title" style="margin-top:24px;">🍎 Meus alimentos</div>`;
+  html += `<div class="ff-note" style="margin:0 0 8px;">Cadastre seus alimentos uma vez aqui. Em cada refeição (+ Adicionar em…) você escolhe quais quiser, quantos quiser.</div>`;
   if(!dietTemplate.length){
-    html += `<div class="diet-empty">Nenhum item salvo ainda. Use "+ Novo item no cardápio padrão" e cole o cardápio inteiro, com as quantidades.</div>`;
+    html += `<div class="diet-empty">Sua lista está vazia.</div>`;
   } else {
-    const totalT = dietTemplate.reduce((acc,t)=> acc + (t.kcal||0), 0);
-    html += `<div class="ff-note" style="margin:0 0 8px;">Cardápio completo: ${dietTemplate.length} itens · ${totalT} kcal</div>`;
-    html += `<div class="add-work-btn" id="addAllTemplateBtn" style="margin:0 0 4px;">＋ Adicionar o cardápio completo de hoje</div>`;
-    const cats = MEAL_CATEGORIES.concat(Array.from(new Set(dietTemplate.map(t=>t.category||'Outro'))).filter(c=>!MEAL_CATEGORIES.includes(c)));
-    cats.forEach(cat=>{
-      const items = dietTemplate.map((t,i)=>({t,i})).filter(x=> (x.t.category||'Outro') === cat);
-      if(!items.length) return;
-      const sub = items.reduce((acc,x)=> acc + (x.t.kcal||0), 0);
-      html += `<div class="diet-cat-title" style="margin-top:14px; display:flex; justify-content:space-between; align-items:center; gap:8px;"><span style="white-space:nowrap;">${mEsc(cat)} · ${sub} kcal</span><span class="panel-link" data-addcattemplate="${mEsc(cat)}" style="text-transform:none; cursor:pointer; white-space:nowrap;">＋ adicionar</span></div>`;
-      items.forEach(({t,i})=>{
-        html += `<div class="diet-template-row" data-template="${i}">
-        <span class="diet-template-add">＋</span>
+    dietTemplate.forEach((t,i)=>{
+      html += `<div class="diet-template-row" data-template="${i}" style="cursor:default;">
         <span style="flex:1;">${mEsc(t.name)}${t.grams ? ` <span style="color:var(--tx-low);">· ${t.grams} g</span>` : ''}</span>
         <span class="diet-meal-macros">${t.kcal}kcal</span>
-        <span class="diet-template-del" data-tdel="${i}" title="Remover do cardápio">🗑</span>
+        <span class="diet-template-del" data-tdel="${i}" title="Remover da lista">🗑</span>
       </div>`;
-      });
     });
   }
-  html += `<div class="add-work-btn" id="addTemplateBtn" style="margin-top:8px;">+ Novo item no cardápio padrão</div>`;
+  html += `<div class="add-work-btn" id="addTemplateBtn" style="margin-top:8px;">+ Adicionar à minha lista (cole vários)</div>`;
 
   openModal('🍽️ Minha Dieta', html);
 
@@ -3639,17 +3640,7 @@ function openDietModal(){
     });
   });
   appModalBody.querySelectorAll('[data-addcat]').forEach(btn=>{
-    btn.addEventListener('click', ()=> addFoodFlow(btn.dataset.addcat));
-  });
-  appModalBody.querySelectorAll('.diet-template-row').forEach(row=>{
-    row.addEventListener('click', e=>{
-      if(e.target.closest('.diet-template-del')) return;
-      const t = dietTemplate[+row.dataset.template];
-      healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category, grams:t.grams||null });
-      saveHealthState(); renderHealthPanel(); bumpXp(5);
-      showToast('✓ "'+t.name+'" adicionado de hoje · +5 XP');
-      openDietModal();
-    });
+    btn.addEventListener('click', ()=> openFoodPicker(btn.dataset.addcat));
   });
   appModalBody.querySelectorAll('.diet-template-del').forEach(btn=>{
     btn.addEventListener('click', e=>{
@@ -3660,23 +3651,6 @@ function openDietModal(){
     });
   });
   document.getElementById('addTemplateBtn').addEventListener('click', ()=> addFoodFlow(null, true));
-  const addAllBtn = document.getElementById('addAllTemplateBtn');
-  if(addAllBtn) addAllBtn.addEventListener('click', ()=>{
-    dietTemplate.forEach(t=> healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category, grams:t.grams||null }));
-    saveHealthState(); renderHealthPanel(); bumpXp(5);
-    showToast('✓ cardápio completo adicionado ('+dietTemplate.length+' itens) · +5 XP');
-    openDietModal();
-  });
-  appModalBody.querySelectorAll('[data-addcattemplate]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const cat = btn.dataset.addcattemplate;
-      const items = dietTemplate.filter(t=> (t.category||'Outro') === cat);
-      items.forEach(t=> healthState.caloriasMeals.push({ name:t.name, kcal:t.kcal, protein:t.protein||0, carb:t.carb||0, fat:t.fat||0, category:t.category, grams:t.grams||null }));
-      saveHealthState(); renderHealthPanel(); bumpXp(5);
-      showToast('✓ '+cat+' adicionado ('+items.length+(items.length>1?' itens':' item')+') · +5 XP');
-      openDietModal();
-    });
-  });
 }
 
 // ============ ADICIONAR ALIMENTOS: cole tudo de uma vez e o app separa e calcula ============
@@ -3846,9 +3820,85 @@ function parseFoodText(text, defCat){
   return out;
 }
 
-function addFoodFlow(category, saveAsTemplate){ openAddFoodsModal(category, saveAsTemplate); }
-function openAddFoodsModal(category, saveAsTemplate){
+function addFoodFlow(category, saveAsTemplate, backCat){ openAddFoodsModal(category, saveAsTemplate, backCat); }
+
+// Escolher, na sua lista, quais alimentos entram numa refeição (vários de uma vez, ajustando a quantidade)
+function openFoodPicker(cat){
+  if(!dietTemplate.length){
+    openModal('🍽️ '+cat, `
+      <div class="diet-empty" style="margin-bottom:12px;">Sua lista de alimentos está vazia. Cadastre seus alimentos uma vez (pode colar vários de uma vez) e depois é só escolher em cada refeição.</div>
+      <div class="ghost-btn primary" id="pkNewList">+ Adicionar à minha lista</div>
+      <div class="add-work-btn" id="pkNewDirect" style="margin-top:10px;">Digitar só para esta refeição</div>
+      <div class="ghost-btn" id="pkBack" style="margin-top:10px;">Voltar</div>`);
+    document.getElementById('pkNewList').addEventListener('click', ()=> addFoodFlow(null, true, cat));
+    document.getElementById('pkNewDirect').addEventListener('click', ()=> addFoodFlow(cat));
+    document.getElementById('pkBack').addEventListener('click', ()=> openDietModal());
+    return;
+  }
+  const rowsHtml = dietTemplate.map((t,i)=>`<div class="pk-row" data-i="${i}" data-n="${mEsc(normTxt(t.name))}">
+      <span class="pk-box"></span>
+      <span class="pk-name">${mEsc(t.name)}</span>
+      ${t.grams ? `<input class="pk-g" inputmode="decimal" value="${t.grams}" title="Quantidade em gramas"><span class="pk-gl">g</span>` : ''}
+      <span class="pk-kcal">${t.kcal} kcal</span>
+    </div>`).join('');
+  openModal('🍽️ Escolher — '+cat, `
+    <input id="pkSearch" class="ff-name" style="width:100%; margin-bottom:10px;" placeholder="Buscar na minha lista…">
+    <div id="pkList">${rowsHtml}</div>
+    <div class="ff-note" id="pkSummary" style="margin:6px 0 10px;">Toque nos alimentos para escolher. Dá para ajustar os gramas.</div>
+    <div style="display:flex; gap:10px;">
+      <div class="ghost-btn" id="pkCancel">Cancelar</div>
+      <div class="ghost-btn primary" id="pkAdd">Adicionar à refeição</div>
+    </div>
+    <div class="add-work-btn" id="pkNew" style="margin-top:12px;">+ Alimento que não está na lista</div>`);
+  const list = document.getElementById('pkList');
+  function valsFor(row){
+    const t = dietTemplate[+row.dataset.i];
+    const gi = row.querySelector('.pk-g');
+    const g = gi ? gNum(gi.value) : 0;
+    const f = (t.grams && g > 0) ? g/t.grams : 1;
+    return { t, f, g: (t.grams && g > 0) ? Math.round(g) : (t.grams||null) };
+  }
+  function refresh(){
+    let n = 0, kcal = 0;
+    list.querySelectorAll('.pk-row').forEach(row=>{
+      const on = row.classList.contains('on');
+      row.querySelector('.pk-box').textContent = on ? '✓' : '';
+      const v = valsFor(row);
+      const k = Math.round((v.t.kcal||0)*v.f);
+      row.querySelector('.pk-kcal').textContent = k+' kcal';
+      if(on){ n++; kcal += k; }
+    });
+    document.getElementById('pkSummary').textContent = n ? (n+(n>1?' alimentos escolhidos':' alimento escolhido')+' · '+kcal+' kcal') : 'Toque nos alimentos para escolher. Dá para ajustar os gramas.';
+  }
+  list.querySelectorAll('.pk-row').forEach(row=>{
+    row.addEventListener('click', e=>{ if(e.target.closest('.pk-g')) return; row.classList.toggle('on'); refresh(); });
+    const gi = row.querySelector('.pk-g');
+    if(gi){ gi.addEventListener('input', ()=>{ row.classList.add('on'); refresh(); }); }
+  });
+  document.getElementById('pkSearch').addEventListener('input', e=>{
+    const q = normTxt(e.target.value);
+    list.querySelectorAll('.pk-row').forEach(row=>{ row.style.display = (!q || row.dataset.n.includes(q)) ? '' : 'none'; });
+  });
+  document.getElementById('pkCancel').addEventListener('click', ()=> openDietModal());
+  document.getElementById('pkNew').addEventListener('click', ()=> addFoodFlow(cat));
+  document.getElementById('pkAdd').addEventListener('click', ()=>{
+    const chosen = Array.from(list.querySelectorAll('.pk-row.on'));
+    if(!chosen.length){ showToast('Escolha pelo menos um alimento'); return; }
+    let total = 0;
+    chosen.forEach(row=>{
+      const { t, f, g } = valsFor(row);
+      const kcal = Math.round((t.kcal||0)*f);
+      total += kcal;
+      healthState.caloriasMeals.push({ name:t.name, kcal, protein:Math.round((t.protein||0)*f*10)/10, carb:Math.round((t.carb||0)*f*10)/10, fat:Math.round((t.fat||0)*f*10)/10, category:cat, grams:g });
+    });
+    saveHealthState(); renderHealthPanel(); bumpXp(5);
+    showToast('✓ '+chosen.length+(chosen.length>1?' alimentos':' alimento')+' em '+cat+' · '+total+' kcal · +5 XP');
+    openDietModal();
+  });
+}
+function openAddFoodsModal(category, saveAsTemplate, backCat){
   let cat = category || MEAL_CATEGORIES[0];
+  let keep = true;
   let rows = [];
   let pasteText = '';
   let info = '';
@@ -3859,6 +3909,7 @@ function openAddFoodsModal(category, saveAsTemplate){
     });
     const sel = document.getElementById('ffCat'); if(sel) cat = sel.value;
     const ta = document.getElementById('ffText'); if(ta) pasteText = ta.value;
+    const kp = document.getElementById('ffKeep'); if(kp) keep = kp.checked;
   }
   function catOptions(cur){ return MEAL_CATEGORIES.map(c=>`<option value="${mEsc(c)}" ${c===cur?'selected':''}>${mEsc(c)}</option>`).join(''); }
   function render(){
@@ -3870,8 +3921,8 @@ function openAddFoodsModal(category, saveAsTemplate){
         <div class="ghost-btn primary" id="ffParse" style="margin-top:8px;">Interpretar e preencher</div>
         ${info ? `<div class="ff-note" style="margin-top:8px;">${info}</div>` : ''}
       </div>
-      <div style="font-size:12px; color:var(--tx-low); margin:14px 0 6px;">${saveAsTemplate ? 'Salvar no cardápio padrão — ' : ''}categoria dos itens novos / sem título</div>
-      <select id="ffCat" class="ff-cat">${catOptions(cat)}</select>
+      ${saveAsTemplate ? '<div style="height:12px;"></div>' : `<div style="font-size:12px; color:var(--tx-low); margin:14px 0 6px;">Refeição dos itens novos / sem título</div>
+      <select id="ffCat" class="ff-cat">${catOptions(cat)}</select>`}
       ${rows.map((r,i)=>`<div class="ff-row" data-r="${i}">
         <div class="ff-line">
           <input class="ff-name" data-k="name" value="${mEsc(r.name)}" placeholder="Alimento (ex: arroz, banana)">
@@ -3885,16 +3936,17 @@ function openAddFoodsModal(category, saveAsTemplate){
           <input data-k="c" inputmode="decimal" value="${mEsc(r.c)}" placeholder="C">
           <input data-k="f" inputmode="decimal" value="${mEsc(r.f)}" placeholder="G">
         </div>
-        <div class="ff-line"><select class="ff-cat ff-cat-row" data-k="cat">${catOptions(r.cat || cat)}</select></div>
+        ${saveAsTemplate ? '' : `<div class="ff-line"><select class="ff-cat ff-cat-row" data-k="cat">${catOptions(r.cat || cat)}</select></div>`}
         <div class="ff-results">${r.note ? `<div class="ff-note">${mEsc(r.note)}</div>` : ''}</div>
       </div>`).join('')}
       <div class="add-work-btn" id="ffAddRow" style="margin:4px 0 12px;">+ Adicionar outro alimento</div>
+      ${saveAsTemplate ? '' : `<label class="ff-keep"><input type="checkbox" id="ffKeep" ${keep ? 'checked' : ''}> Guardar também em "Meus alimentos" para escolher de novo depois</label>`}
       <div style="display:flex; gap:10px;">
         <div class="ghost-btn" id="ffCancel">Cancelar</div>
-        <div class="ghost-btn primary" id="ffSave">${saveAsTemplate ? 'Salvar tudo no cardápio' : 'Adicionar tudo'}</div>
+        <div class="ghost-btn primary" id="ffSave">${saveAsTemplate ? 'Salvar na minha lista' : 'Adicionar tudo'}</div>
       </div>
       <div style="font-size:11px; color:var(--tx-low); margin-top:10px;">As calorias vêm de uma tabela interna com valores médios (aproximados) — confira antes de salvar. P, C e G (proteína, carboidrato, gordura) são opcionais.</div>`;
-    openModal(saveAsTemplate ? '📋 Novo no cardápio padrão' : '🍽️ Adicionar alimentos', html);
+    openModal(saveAsTemplate ? '🍎 Adicionar à minha lista' : '🍽️ Adicionar em '+cat, html);
     bind();
   }
   function bind(){
@@ -3909,7 +3961,7 @@ function openAddFoodsModal(category, saveAsTemplate){
       render();
     });
     document.getElementById('ffAddRow').addEventListener('click', ()=>{ readRows(); rows.push(newFoodRow(cat)); render(); const all = appModalBody.querySelectorAll('.ff-name'); if(all.length) all[all.length-1].focus(); });
-    document.getElementById('ffCancel').addEventListener('click', ()=> openDietModal());
+    document.getElementById('ffCancel').addEventListener('click', ()=> backCat ? openFoodPicker(backCat) : openDietModal());
     document.getElementById('ffSave').addEventListener('click', save);
     appModalBody.querySelectorAll('.ff-row').forEach(el=>{
       const i = +el.dataset.r;
@@ -3963,10 +4015,21 @@ function openAddFoodsModal(category, saveAsTemplate){
       return;
     }
     const entries = filled.map(r=>({ name:r.name.trim(), kcal:Math.round(gNum(r.kcal)), protein:gNum(r.p), carb:gNum(r.c), fat:gNum(r.f), category:(r.cat || cat), grams:(gNum(r.grams) > 0 ? Math.round(gNum(r.grams)) : null) }));
+    function keepInList(list){
+      let added = 0;
+      list.forEach(e=>{
+        const dup = dietTemplate.some(t=> normTxt(t.name) === normTxt(e.name) && (t.grams||0) === (e.grams||0));
+        if(!dup){ dietTemplate.push({ name:e.name, kcal:e.kcal, protein:e.protein, carb:e.carb, fat:e.fat, category:'Outro', grams:e.grams }); added++; }
+      });
+      if(added) saveDietTemplate();
+      return added;
+    }
     if(saveAsTemplate){
-      entries.forEach(e=> dietTemplate.push(e)); saveDietTemplate();
-      showToast('✓ '+entries.length+(entries.length>1?' itens salvos':' item salvo')+' no cardápio padrão');
+      const added = keepInList(entries);
+      showToast('✓ '+added+(added===1?' alimento salvo':' alimentos salvos')+' na sua lista'+(added < entries.length ? ' ('+(entries.length-added)+' já existiam)' : ''));
+      if(backCat){ openFoodPicker(backCat); return; }
     } else {
+      if(keep) keepInList(entries);
       entries.forEach(e=> healthState.caloriasMeals.push(e));
       saveHealthState(); renderHealthPanel(); bumpXp(5);
       const total = entries.reduce((a,e)=>a+e.kcal,0);
