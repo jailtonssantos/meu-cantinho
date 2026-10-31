@@ -642,6 +642,27 @@ html[data-theme="light"] .app-modal-card{ background:rgba(250,250,253,0.97); }
 .tela-back{ border:1px solid var(--border-hi); background:var(--panel); color:var(--tx-mid); border-radius:12px; padding:8px 14px; font-size:13px; cursor:pointer; font-family:inherit; }
 .tela-title{ font-family:var(--font-display); font-size:22px; font-weight:600; }
 .tela-body{ max-width:900px; }
+.mood-pick{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.mood-opt{ display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:1px solid var(--border); border-radius:14px; background:var(--panel); font-size:11.5px; color:var(--tx-mid); cursor:pointer; user-select:none; }
+.mood-opt-e{ font-size:26px; line-height:1; }
+.mood-opt:hover{ border-color:var(--border-hi); }
+.mood-opt.on{ border-color:var(--violet-2); background:rgba(139,107,240,0.16); color:var(--tx-hi); }
+
+.pk2-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+.pk2-chip{ padding:5px 11px; border:1px solid var(--border-hi); border-radius:99px; font-size:11.5px; color:var(--tx-mid); cursor:pointer; white-space:nowrap; }
+.pk2-chip.on{ background:linear-gradient(135deg, var(--violet), var(--violet-2)); color:#fff; border-color:transparent; }
+.pk2-row{ display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--border); border-radius:12px; margin-bottom:7px; background:var(--panel); }
+.pk2-row.on{ border-color:var(--violet-2); background:rgba(139,107,240,0.12); }
+.pk2-main{ flex:1; min-width:0; cursor:pointer; }
+.pk2-name{ font-size:13.5px; font-weight:600; }
+.pk2-info{ font-size:11px; color:var(--tx-low); margin-top:2px; }
+.pk2-step{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
+.pk2-btn{ width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:10px; border:1px solid var(--border-hi); font-size:18px; cursor:pointer; user-select:none; color:var(--tx-hi); }
+.pk2-btn:active{ background:rgba(255,255,255,0.12); }
+.pk2-q{ min-width:22px; text-align:center; font-family:var(--font-mono); font-size:14px; }
+.pk-foot{ position:sticky; bottom:-2px; background:rgba(16,13,26,0.97); padding:10px 0 2px; margin-top:4px; }
+html[data-theme="light"] .pk-foot{ background:rgba(250,250,253,0.98); }
+
 .pk-row{ display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--border); border-radius:12px; margin-bottom:8px; cursor:pointer; background:var(--panel); }
 .pk-row.on{ border-color:var(--violet-2); background:rgba(139,107,240,0.12); }
 .pk-box{ width:18px; height:18px; flex-shrink:0; border-radius:6px; border:1.5px solid var(--border-hi); display:flex; align-items:center; justify-content:center; font-size:11px; color:#fff; }
@@ -2032,14 +2053,29 @@ renderGroupChips('inicio');
 
 // ============ MOOD SELECTOR ============
 let selectedMood = 'Bem';
+const MOOD_LIST = [
+  { k:'Muito bem', e:'😄' }, { k:'Bem', e:'🙂' }, { k:'Grato', e:'🥰' },
+  { k:'Neutro', e:'😐' }, { k:'Cansado', e:'😴' }, { k:'Mal', e:'😕' },
+  { k:'Triste', e:'😢' }, { k:'Ansioso', e:'😰' }, { k:'Muito mal', e:'😫' }
+];
+function moodEmoji(k){ const m = MOOD_LIST.find(x=>x.k===k); return m ? m.e : '🙂'; }
+function dayStamp(){ const d = new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function setMood(k){
+  selectedMood = k;
+  try{ localStorage.setItem('mc_mood_'+dayStamp(), k); }catch(e){}
+  document.querySelectorAll('.mood-btn').forEach(b=> b.classList.toggle('selected', b.dataset.mood === k));
+  if(typeof renderQuickInfo === 'function') renderQuickInfo();
+  if(typeof renderHealthPanel === 'function') renderHealthPanel();
+}
+try{
+  const savedMood = localStorage.getItem('mc_mood_'+dayStamp());
+  if(savedMood){
+    selectedMood = savedMood;
+    document.querySelectorAll('.mood-btn').forEach(b=> b.classList.toggle('selected', b.dataset.mood === savedMood));
+  }
+}catch(e){}
 document.querySelectorAll('.mood-btn').forEach(btn=>{
-  btn.addEventListener('click', ()=>{
-    document.querySelectorAll('.mood-btn').forEach(b=>b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedMood = btn.dataset.mood;
-    if(typeof renderQuickInfo === 'function') renderQuickInfo();
-    if(typeof renderHealthPanel === 'function') renderHealthPanel();
-  });
+  btn.addEventListener('click', ()=> setMood(btn.dataset.mood));
 });
 
 // ============ HABITS (persistido de verdade, por semana) ============
@@ -3123,25 +3159,43 @@ function todayKey(){
   const d = new Date();
   return 'mc_diary_' + d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
 }
-document.getElementById('writeDiaryBtn').addEventListener('click', ()=>{
+function openDiaryModal(){
   let saved = '';
   try{ saved = localStorage.getItem(todayKey()) || ''; }catch(e){}
-  openModal('📝 Diário de hoje', `
-    <div style="font-size:12.5px; color:var(--tx-low); margin-bottom:10px;">Humor selecionado: ${selectedMood}</div>
-    <div class="modal-form-row">
-      <label>Como foi o seu dia?</label>
-      <textarea id="diaryText" placeholder="Escreva livremente...">${saved}</textarea>
+  openModal('📝 Como você está hoje?', `
+    <div style="font-size:12px; color:var(--tx-low); margin-bottom:8px;">Escolha o emoji que combina com o seu momento:</div>
+    <div class="mood-pick" id="moodPick">
+      ${MOOD_LIST.map(m=>`<div class="mood-opt ${m.k===selectedMood?'on':''}" data-mood="${m.k}"><span class="mood-opt-e">${m.e}</span><span>${m.k}</span></div>`).join('')}
+    </div>
+    <div class="modal-form-row" style="margin-top:14px;">
+      <label>Como foi o seu dia? (diário)</label>
+      <textarea id="diaryText" placeholder="Escreva livremente...">${mEsc(saved)}</textarea>
     </div>
     <button class="ghost-btn primary" id="saveDiaryBtn" style="width:100%;">Salvar entrada</button>
   `);
+  document.querySelectorAll('#moodPick .mood-opt').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      setMood(el.dataset.mood);
+      document.querySelectorAll('#moodPick .mood-opt').forEach(o=> o.classList.toggle('on', o===el));
+    });
+  });
   document.getElementById('saveDiaryBtn').addEventListener('click', ()=>{
     const text = document.getElementById('diaryText').value;
     try{ localStorage.setItem(todayKey(), text); }catch(e){}
-    bumpXp(10);
+    let msg = '✓ Diário salvo · '+moodEmoji(selectedMood)+' '+selectedMood;
+    const xpKey = 'mc_diary_xp_'+dayStamp();
+    let given = false;
+    try{ given = !!localStorage.getItem(xpKey); }catch(e){}
+    if(text.trim() && !given){
+      try{ localStorage.setItem(xpKey, '1'); }catch(e){}
+      bumpXp(10);
+      msg += ' · +10 XP';
+    }
     closeModal();
-    showToast('✓ Diário salvo · +10 XP');
+    showToast(msg);
   });
-});
+}
+document.getElementById('writeDiaryBtn').addEventListener('click', openDiaryModal);
 
 // ============ NOTES (quick notepad, persisted) ============
 function openNotesModal(){
@@ -3614,10 +3668,10 @@ function openDietModal(){
     html += `<div class="add-work-btn" data-addcat="${cat}" style="margin:8px 0 4px;">+ Adicionar em ${cat}</div>`;
   });
 
-  html += `<div class="diet-cat-title" style="margin-top:24px;">🍎 Meus alimentos</div>`;
-  html += `<div class="ff-note" style="margin:0 0 8px;">Cadastre seus alimentos uma vez aqui. Em cada refeição (+ Adicionar em…) você escolhe quais quiser, quantos quiser.</div>`;
+  html += `<div class="diet-cat-title" style="margin-top:24px;">🍎 Meus alimentos extras</div>`;
+  html += `<div class="ff-note" style="margin:0 0 8px;">O app já tem uma lista pronta de alimentos comuns. Aqui ficam só os que você cadastrar além dela (aparecem no filtro "Meus").</div>`;
   if(!dietTemplate.length){
-    html += `<div class="diet-empty">Sua lista está vazia.</div>`;
+    html += `<div class="diet-empty">Você ainda não cadastrou nenhum extra.</div>`;
   } else {
     dietTemplate.forEach((t,i)=>{
       html += `<div class="diet-template-row" data-template="${i}" style="cursor:default;">
@@ -3627,7 +3681,7 @@ function openDietModal(){
       </div>`;
     });
   }
-  html += `<div class="add-work-btn" id="addTemplateBtn" style="margin-top:8px;">+ Adicionar à minha lista (cole vários)</div>`;
+  html += `<div class="add-work-btn" id="addTemplateBtn" style="margin-top:8px;">+ Cadastrar alimento extra (cole vários)</div>`;
 
   openModal('🍽️ Minha Dieta', html);
 
@@ -3822,80 +3876,168 @@ function parseFoodText(text, defCat){
 
 function addFoodFlow(category, saveAsTemplate, backCat){ openAddFoodsModal(category, saveAsTemplate, backCat); }
 
-// Escolher, na sua lista, quais alimentos entram numa refeição (vários de uma vez, ajustando a quantidade)
+// ============ CATÁLOGO PRONTO + escolher com botões − / + (sem digitar gramas) ============
+const CATALOG_INFO = {
+  'arroz integral':{n:'Arroz integral',g:50,u:'50 g',grp:'Carboidratos'},
+  'arroz':{n:'Arroz',g:50,u:'50 g',grp:'Carboidratos'},
+  'feijao preto':{n:'Feijão preto',g:100,u:'concha (100 g)',grp:'Carboidratos'},
+  'feijao':{n:'Feijão',g:100,u:'concha (100 g)',grp:'Carboidratos'},
+  'macarrao':{n:'Macarrão',g:50,u:'50 g',grp:'Carboidratos'},
+  'cuscuz':{n:'Cuscuz',g:50,u:'50 g',grp:'Carboidratos'},
+  'batata doce':{n:'Batata doce',g:130,u:'unidade média (130 g)',grp:'Carboidratos'},
+  'batata':{n:'Batata',g:130,u:'unidade média (130 g)',grp:'Carboidratos'},
+  'mandioca':{n:'Mandioca',g:50,u:'50 g',grp:'Carboidratos'},
+  'pao frances':{n:'Pão francês',g:50,u:'unidade (50 g)',grp:'Carboidratos'},
+  'pao de forma':{n:'Pão de forma',g:25,u:'fatia (25 g)',grp:'Carboidratos'},
+  'pao integral':{n:'Pão integral',g:25,u:'fatia (25 g)',grp:'Carboidratos'},
+  'aveia':{n:'Aveia',g:15,u:'colher de sopa (15 g)',grp:'Carboidratos'},
+  'frango grelhado':{n:'Frango grelhado',g:50,u:'50 g',grp:'Proteínas'},
+  'frango':{n:'Frango',g:50,u:'50 g',grp:'Proteínas'},
+  'carne moida':{n:'Carne moída',g:50,u:'50 g',grp:'Proteínas'},
+  'carne':{n:'Carne (bife)',g:50,u:'50 g',grp:'Proteínas'},
+  'peixe':{n:'Peixe',g:50,u:'50 g',grp:'Proteínas'},
+  'ovo frito':{n:'Ovo frito',g:50,u:'unidade (50 g)',grp:'Proteínas'},
+  'ovo':{n:'Ovo cozido',g:50,u:'unidade (50 g)',grp:'Proteínas'},
+  'banana':{n:'Banana',g:80,u:'unidade (80 g)',grp:'Frutas'},
+  'maca':{n:'Maçã',g:130,u:'unidade (130 g)',grp:'Frutas'},
+  'laranja':{n:'Laranja',g:130,u:'unidade (130 g)',grp:'Frutas'},
+  'mamao':{n:'Mamão',g:50,u:'50 g',grp:'Frutas'},
+  'abacate':{n:'Abacate',g:25,u:'colher de sopa (25 g)',grp:'Frutas'},
+  'uva':{n:'Uva',g:50,u:'50 g',grp:'Frutas'},
+  'manga':{n:'Manga',g:50,u:'50 g',grp:'Frutas'},
+  'melancia':{n:'Melancia',g:100,u:'100 g',grp:'Frutas'},
+  'abacaxi':{n:'Abacaxi',g:50,u:'50 g',grp:'Frutas'},
+  'morango':{n:'Morango',g:50,u:'50 g',grp:'Frutas'},
+  'leite desnatado':{n:'Leite desnatado',g:200,u:'copo (200 ml)',grp:'Laticínios'},
+  'leite':{n:'Leite',g:200,u:'copo (200 ml)',grp:'Laticínios'},
+  'iogurte':{n:'Iogurte',g:170,u:'pote (170 g)',grp:'Laticínios'},
+  'queijo minas frescal':{n:'Queijo minas',g:30,u:'fatia (30 g)',grp:'Laticínios'},
+  'queijo mussarela':{n:'Queijo mussarela',g:20,u:'fatia (20 g)',grp:'Laticínios'},
+  'queijo prato':{n:'Queijo prato',g:15,u:'fatia (15 g)',grp:'Laticínios'},
+  'presunto':{n:'Presunto',g:15,u:'fatia (15 g)',grp:'Laticínios'},
+  'requeijao':{n:'Requeijão',g:30,u:'colher de sopa (30 g)',grp:'Laticínios'},
+  'manteiga':{n:'Manteiga',g:5,u:'colher de chá (5 g)',grp:'Gorduras e doces'},
+  'azeite':{n:'Azeite',g:13,u:'colher de sopa (13 g)',grp:'Gorduras e doces'},
+  'pasta de amendoim':{n:'Pasta de amendoim',g:15,u:'colher de sopa (15 g)',grp:'Gorduras e doces'},
+  'acucar':{n:'Açúcar',g:4,u:'colher de chá (4 g)',grp:'Gorduras e doces'},
+  'mel':{n:'Mel',g:20,u:'colher de sopa (20 g)',grp:'Gorduras e doces'},
+  'cafe':{n:'Café',g:50,u:'xícara (50 ml)',grp:'Bebidas'},
+  'suco de laranja':{n:'Suco de laranja',g:200,u:'copo (200 ml)',grp:'Bebidas'},
+  'refrigerante':{n:'Refrigerante',g:350,u:'lata (350 ml)',grp:'Bebidas'},
+  'alface':{n:'Alface',g:50,u:'50 g',grp:'Verduras'},
+  'tomate':{n:'Tomate',g:100,u:'unidade (100 g)',grp:'Verduras'},
+  'cenoura':{n:'Cenoura',g:50,u:'50 g',grp:'Verduras'},
+  'brocolis':{n:'Brócolis',g:50,u:'50 g',grp:'Verduras'},
+  'salada':{n:'Salada',g:50,u:'50 g',grp:'Verduras'}
+};
+const PICKER_GROUPS = ['Todos','Carboidratos','Proteínas','Frutas','Laticínios','Gorduras e doces','Bebidas','Verduras','Meus'];
+function buildPickerItems(){
+  const items = [];
+  FOOD_DB.forEach(fd=>{
+    const info = CATALOG_INFO[fd.k[0]];
+    if(!info) return;
+    const f = info.g/100;
+    items.push({ id:'c:'+fd.k[0], name:info.n, grp:info.grp, label:info.u, g:info.g,
+      kcal:fd.kcal*f, p:fd.p*f, c:fd.c*f, f:fd.f*f });
+  });
+  dietTemplate.forEach((t,i)=>{
+    items.push({ id:'m:'+i, name:t.name, grp:'Meus', label:(t.grams ? t.grams+' g' : '1 porção'), g:(t.grams||null),
+      kcal:t.kcal||0, p:t.protein||0, c:t.carb||0, f:t.fat||0 });
+  });
+  return items;
+}
+function fmtN(n){ return Math.round(n*10)/10; }
 function openFoodPicker(cat){
-  if(!dietTemplate.length){
-    openModal('🍽️ '+cat, `
-      <div class="diet-empty" style="margin-bottom:12px;">Sua lista de alimentos está vazia. Cadastre seus alimentos uma vez (pode colar vários de uma vez) e depois é só escolher em cada refeição.</div>
-      <div class="ghost-btn primary" id="pkNewList">+ Adicionar à minha lista</div>
-      <div class="add-work-btn" id="pkNewDirect" style="margin-top:10px;">Digitar só para esta refeição</div>
-      <div class="ghost-btn" id="pkBack" style="margin-top:10px;">Voltar</div>`);
-    document.getElementById('pkNewList').addEventListener('click', ()=> addFoodFlow(null, true, cat));
-    document.getElementById('pkNewDirect').addEventListener('click', ()=> addFoodFlow(cat));
-    document.getElementById('pkBack').addEventListener('click', ()=> openDietModal());
-    return;
-  }
-  const rowsHtml = dietTemplate.map((t,i)=>`<div class="pk-row" data-i="${i}" data-n="${mEsc(normTxt(t.name))}">
-      <span class="pk-box"></span>
-      <span class="pk-name">${mEsc(t.name)}</span>
-      ${t.grams ? `<input class="pk-g" inputmode="decimal" value="${t.grams}" title="Quantidade em gramas"><span class="pk-gl">g</span>` : ''}
-      <span class="pk-kcal">${t.kcal} kcal</span>
+  const items = buildPickerItems();
+  const qty = {};            // id -> quantidade de porções
+  let group = 'Todos', query = '';
+  const rowsHtml = items.map(it=>`<div class="pk2-row" data-id="${mEsc(it.id)}" data-grp="${mEsc(it.grp)}" data-n="${mEsc(normTxt(it.name))}">
+      <div class="pk2-main">
+        <div class="pk2-name">${mEsc(it.name)}</div>
+        <div class="pk2-info">${mEsc(it.label)} · ${Math.round(it.kcal)} kcal · P ${fmtN(it.p)} · C ${fmtN(it.c)} · G ${fmtN(it.f)}</div>
+      </div>
+      <div class="pk2-step">
+        <span class="pk2-btn" data-d="-1">−</span>
+        <span class="pk2-q">0</span>
+        <span class="pk2-btn" data-d="1">+</span>
+      </div>
     </div>`).join('');
-  openModal('🍽️ Escolher — '+cat, `
-    <input id="pkSearch" class="ff-name" style="width:100%; margin-bottom:10px;" placeholder="Buscar na minha lista…">
+  openModal('🍽️ Adicionar em '+cat, `
+    <input id="pkSearch" class="ff-name" style="width:100%; margin-bottom:10px;" placeholder="Buscar alimento…">
+    <div class="pk2-chips" id="pkChips">${PICKER_GROUPS.map(g=>`<span class="pk2-chip ${g==='Todos'?'on':''}" data-g="${g}">${g}</span>`).join('')}</div>
     <div id="pkList">${rowsHtml}</div>
-    <div class="ff-note" id="pkSummary" style="margin:6px 0 10px;">Toque nos alimentos para escolher. Dá para ajustar os gramas.</div>
-    <div style="display:flex; gap:10px;">
-      <div class="ghost-btn" id="pkCancel">Cancelar</div>
-      <div class="ghost-btn primary" id="pkAdd">Adicionar à refeição</div>
-    </div>
-    <div class="add-work-btn" id="pkNew" style="margin-top:12px;">+ Alimento que não está na lista</div>`);
+    <div class="add-work-btn" id="pkNew" style="margin:6px 0 10px;">+ Alimento que não está na lista</div>
+    <div class="pk-foot">
+      <div class="ff-note" id="pkSummary" style="margin:0 0 8px;">Use o + para escolher a quantidade. P = proteína · C = carboidrato · G = gordura (em gramas).</div>
+      <div style="display:flex; gap:10px;">
+        <div class="ghost-btn" id="pkCancel">Cancelar</div>
+        <div class="ghost-btn primary" id="pkAdd">Adicionar à refeição</div>
+      </div>
+    </div>`);
   const list = document.getElementById('pkList');
-  function valsFor(row){
-    const t = dietTemplate[+row.dataset.i];
-    const gi = row.querySelector('.pk-g');
-    const g = gi ? gNum(gi.value) : 0;
-    const f = (t.grams && g > 0) ? g/t.grams : 1;
-    return { t, f, g: (t.grams && g > 0) ? Math.round(g) : (t.grams||null) };
+  const byId = {}; items.forEach(it=> byId[it.id] = it);
+  function applyFilter(){
+    list.querySelectorAll('.pk2-row').forEach(row=>{
+      const okG = group === 'Todos' || row.dataset.grp === group;
+      const okQ = !query || row.dataset.n.includes(query);
+      row.style.display = (okG && okQ) ? '' : 'none';
+    });
   }
   function refresh(){
-    let n = 0, kcal = 0;
-    list.querySelectorAll('.pk-row').forEach(row=>{
-      const on = row.classList.contains('on');
-      row.querySelector('.pk-box').textContent = on ? '✓' : '';
-      const v = valsFor(row);
-      const k = Math.round((v.t.kcal||0)*v.f);
-      row.querySelector('.pk-kcal').textContent = k+' kcal';
-      if(on){ n++; kcal += k; }
+    let n = 0, kcal = 0, P = 0, C = 0, F = 0;
+    list.querySelectorAll('.pk2-row').forEach(row=>{
+      const it = byId[row.dataset.id];
+      const q = qty[it.id] || 0;
+      row.classList.toggle('on', q > 0);
+      row.querySelector('.pk2-q').textContent = q;
+      const info = row.querySelector('.pk2-info');
+      if(q > 0){
+        info.textContent = q+' × '+it.label+' = '+Math.round(it.kcal*q)+' kcal · P '+fmtN(it.p*q)+' · C '+fmtN(it.c*q)+' · G '+fmtN(it.f*q);
+        n++; kcal += it.kcal*q; P += it.p*q; C += it.c*q; F += it.f*q;
+      } else {
+        info.textContent = it.label+' · '+Math.round(it.kcal)+' kcal · P '+fmtN(it.p)+' · C '+fmtN(it.c)+' · G '+fmtN(it.f);
+      }
     });
-    document.getElementById('pkSummary').textContent = n ? (n+(n>1?' alimentos escolhidos':' alimento escolhido')+' · '+kcal+' kcal') : 'Toque nos alimentos para escolher. Dá para ajustar os gramas.';
+    document.getElementById('pkSummary').textContent = n
+      ? n+(n>1?' alimentos':' alimento')+' · '+Math.round(kcal)+' kcal · P '+fmtN(P)+' · C '+fmtN(C)+' · G '+fmtN(F)
+      : 'Use o + para escolher a quantidade. P = proteína · C = carboidrato · G = gordura (em gramas).';
   }
-  list.querySelectorAll('.pk-row').forEach(row=>{
-    row.addEventListener('click', e=>{ if(e.target.closest('.pk-g')) return; row.classList.toggle('on'); refresh(); });
-    const gi = row.querySelector('.pk-g');
-    if(gi){ gi.addEventListener('input', ()=>{ row.classList.add('on'); refresh(); }); }
+  list.addEventListener('click', e=>{
+    const row = e.target.closest('.pk2-row'); if(!row) return;
+    const it = byId[row.dataset.id];
+    const btn = e.target.closest('.pk2-btn');
+    let d = 0;
+    if(btn) d = +btn.dataset.d;
+    else if(e.target.closest('.pk2-main')) d = 1;
+    if(!d) return;
+    qty[it.id] = Math.max(0, (qty[it.id]||0) + d);
+    refresh();
   });
-  document.getElementById('pkSearch').addEventListener('input', e=>{
-    const q = normTxt(e.target.value);
-    list.querySelectorAll('.pk-row').forEach(row=>{ row.style.display = (!q || row.dataset.n.includes(q)) ? '' : 'none'; });
+  document.getElementById('pkChips').addEventListener('click', e=>{
+    const chip = e.target.closest('.pk2-chip'); if(!chip) return;
+    group = chip.dataset.g;
+    document.querySelectorAll('#pkChips .pk2-chip').forEach(c=> c.classList.toggle('on', c===chip));
+    applyFilter();
   });
+  document.getElementById('pkSearch').addEventListener('input', e=>{ query = normTxt(e.target.value); applyFilter(); });
   document.getElementById('pkCancel').addEventListener('click', ()=> openDietModal());
   document.getElementById('pkNew').addEventListener('click', ()=> addFoodFlow(cat));
   document.getElementById('pkAdd').addEventListener('click', ()=>{
-    const chosen = Array.from(list.querySelectorAll('.pk-row.on'));
+    const chosen = items.filter(it=> (qty[it.id]||0) > 0);
     if(!chosen.length){ showToast('Escolha pelo menos um alimento'); return; }
     let total = 0;
-    chosen.forEach(row=>{
-      const { t, f, g } = valsFor(row);
-      const kcal = Math.round((t.kcal||0)*f);
+    chosen.forEach(it=>{
+      const q = qty[it.id];
+      const kcal = Math.round(it.kcal*q);
       total += kcal;
-      healthState.caloriasMeals.push({ name:t.name, kcal, protein:Math.round((t.protein||0)*f*10)/10, carb:Math.round((t.carb||0)*f*10)/10, fat:Math.round((t.fat||0)*f*10)/10, category:cat, grams:g });
+      healthState.caloriasMeals.push({ name:it.name, kcal, protein:fmtN(it.p*q), carb:fmtN(it.c*q), fat:fmtN(it.f*q), category:cat, grams:(it.g ? Math.round(it.g*q) : null) });
     });
     saveHealthState(); renderHealthPanel(); bumpXp(5);
     showToast('✓ '+chosen.length+(chosen.length>1?' alimentos':' alimento')+' em '+cat+' · '+total+' kcal · +5 XP');
     openDietModal();
   });
 }
+
 function openAddFoodsModal(category, saveAsTemplate, backCat){
   let cat = category || MEAL_CATEGORIES[0];
   let keep = true;
@@ -4109,7 +4251,7 @@ function renderHealthPanel(){
       <div class="stat-sub">${pesoDelta!=null ? (pesoDelta>0?'+':'')+pesoDelta+'kg desde último' : 'toque p/ registrar'}</div>
     </div>
     <div class="health-cell" data-action="humor">
-      <div class="stat-top">🙂 Humor</div>
+      <div class="stat-top">${moodEmoji(selectedMood)} Humor</div>
       <div class="stat-value" style="font-size:16px;">${selectedMood}</div>
       <div class="stat-sub">toque p/ abrir diário</div>
     </div>
@@ -4326,7 +4468,7 @@ function openStatsModal(){
     <div class="mini-task-row"><span style="flex:1;">Nível atual</span><b>12 — Construtor</b></div>
     <div class="mini-task-row"><span style="flex:1;">🍽️ Calorias</span><b>${caloriasTotal()}/${dailyCalorieGoal} kcal</b></div>
     <div class="mini-task-row"><span style="flex:1;">⚖️ Peso</span><b>${healthState.peso!=null?healthState.peso+'kg':'--'}</b></div>
-    <div class="mini-task-row"><span style="flex:1;">🙂 Humor</span><b>${selectedMood}</b></div>
+    <div class="mini-task-row"><span style="flex:1;">${moodEmoji(selectedMood)} Humor</span><b>${selectedMood}</b></div>
     <div class="mini-task-row"><span style="flex:1;">❤️ Pressão</span><b>${healthState.pressao||'--'}</b></div>
     <div class="mini-task-row"><span style="flex:1;">🏋️ Treino</span><b>${workoutTakenCount()}/${workoutList.length}</b></div>
     <div class="mini-task-row"><span style="flex:1;">💊 Medicação</span><b>${medsTakenCount()}/${medsList.length}</b></div>
@@ -4903,7 +5045,7 @@ function renderQuickInfo(){
 
   bar.innerHTML = `
     <span class="quick-badge" id="qClima">${weatherTxt}</span>
-    <span class="quick-badge" id="qHumor">🙂 ${selectedMood}</span>
+    <span class="quick-badge" id="qHumor">${moodEmoji(selectedMood)} ${selectedMood}</span>
     <span class="quick-badge" id="qLeitura">📖 ${readingTxt}</span>
     <span class="quick-badge" id="qFinancas">💰 ${moneyTxt}</span>
     <span class="quick-badge" id="qTarefas">✓ ${catStr}</span>
