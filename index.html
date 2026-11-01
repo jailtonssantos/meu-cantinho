@@ -642,6 +642,16 @@ html[data-theme="light"] .app-modal-card{ background:rgba(250,250,253,0.97); }
 .tela-back{ border:1px solid var(--border-hi); background:var(--panel); color:var(--tx-mid); border-radius:12px; padding:8px 14px; font-size:13px; cursor:pointer; font-family:inherit; }
 .tela-title{ font-family:var(--font-display); font-size:22px; font-weight:600; }
 .tela-body{ max-width:900px; }
+.sync-box{ margin-top:16px; padding:12px; border:1px solid var(--border-hi); border-radius:14px; background:var(--panel); }
+.sync-box input, .sync-box textarea{ width:100%; background:rgba(255,255,255,0.05); border:1px solid var(--border-hi); border-radius:10px; color:var(--tx-hi); padding:9px 10px; font-size:13px; font-family:inherit; margin-top:8px; }
+.sync-box textarea{ min-height:96px; font-family:var(--font-mono); font-size:11px; }
+.sync-box .row{ display:flex; gap:8px; margin-top:10px; }
+.sync-note{ font-size:11px; color:var(--tx-low); margin-top:6px; line-height:1.4; }
+.sync-ok{ color:var(--green); } .sync-err{ color:var(--amber); }
+#syncBanner{ position:fixed; left:12px; right:12px; top:12px; z-index:600; display:none; align-items:center; gap:10px; padding:10px 14px; border-radius:14px; background:rgba(16,13,26,0.97); border:1px solid var(--violet-2); font-size:12.5px; color:var(--tx-hi); box-shadow:0 10px 30px rgba(0,0,0,0.5); }
+#syncBanner.show{ display:flex; }
+#syncBanner b{ margin-left:auto; cursor:pointer; color:var(--violet-2); }
+
 .mood-pick{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
 .mood-opt{ display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 4px; border:1px solid var(--border); border-radius:14px; background:var(--panel); font-size:11.5px; color:var(--tx-mid); cursor:pointer; user-select:none; }
 .mood-opt-e{ font-size:26px; line-height:1; }
@@ -1767,6 +1777,17 @@ body.tela-musica .player-popover-backdrop{ display:none !important; }
 <input type="file" id="musicFileInput" accept="audio/*" multiple style="display:none;">
 
 <script>
+// ---- Sincronização: observa tudo que o app grava no localStorage (mc_*) ----
+(function(){
+  try{
+    const set0 = Storage.prototype.setItem, rem0 = Storage.prototype.removeItem;
+    window.__mcSyncQueue = [];
+    function note(k){ if(typeof window.__mcSyncHook === 'function') window.__mcSyncHook(k); else window.__mcSyncQueue.push(k); }
+    Storage.prototype.setItem = function(k, v){ set0.call(this, k, v); if(this === window.localStorage) note(String(k)); };
+    Storage.prototype.removeItem = function(k){ rem0.call(this, k); if(this === window.localStorage) note(String(k)); };
+  }catch(e){}
+})();
+
 // ============ ESTADO GLOBAL ANTECIPADO (evita erro de "usado antes de existir") ============
 const dailyCalorieGoal = 2000;
 const dailyWaterGoalMl = 2000;
@@ -4527,6 +4548,7 @@ function openSettingsModal(){
     </div>
     <div class="mini-task-row"><span style="flex:1;">Medicações cadastradas</span><span style="color:var(--tx-low); font-size:11.5px;">${medsList.length}</span></div>
     <div class="mini-task-row"><span style="flex:1;">Meta de calorias</span><span style="color:var(--tx-low); font-size:11.5px;">${dailyCalorieGoal} kcal</span></div>
+    <div id="syncPanel"></div>
     <div style="margin-top:16px; font-size:12px; color:var(--tx-mid);">💾 Backup dos dados</div>
     <div style="font-size:11px; color:var(--tx-low); margin:4px 0 8px;">Seus dados ficam só neste aparelho/endereço. Exporte antes de trocar de celular, de endereço ou instalar o app.</div>
     <div style="display:flex; gap:8px;">
@@ -4534,6 +4556,7 @@ function openSettingsModal(){
       <label class="ghost-btn" style="cursor:pointer; display:block;">⬆ Importar<input type="file" id="importDataInput" accept="application/json,.json" style="display:none;"></label>
     </div>
   `);
+  if(window.MCSync) MCSync.renderPanel();
   document.getElementById('exportDataBtn').addEventListener('click', ()=>{
     const data = {};
     for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.startsWith('mc_')) data[k] = localStorage.getItem(k); }
@@ -6454,6 +6477,296 @@ setupCollapsibleList('toggleEmergencyBtn', 'emergencyBody', 'mc_emergency_collap
 })();
 
 // ============ AI FLOATING BUTTON ============
+
+// ============ SINCRONIZAÇÃO NA NUVEM (Firebase: conta + Firestore) ============
+// Cada chave mc_* do app vira um documento em users/{uid}/kv. Vale o mais recente (por item).
+// Para os dois aparelhos usarem a mesma conta, é preciso colar a configuração do Firebase (Configurações → Sincronização).
+const MC_FIREBASE_DEFAULT = null;   // opcional: colar aqui o objeto firebaseConfig para não precisar colar em cada aparelho
+const MCSync = (function(){
+  const LSx = window.localStorage;
+  const _get = Storage.prototype.getItem, _set = Storage.prototype.setItem, _rem = Storage.prototype.removeItem;
+  const K = { meta:'mc_sync_meta', dirty:'mc_sync_dirty', last:'mc_sync_last', cfg:'mc_sync_cfg' };
+  const POLL_MS = 90000, SDK = '10.12.2';
+  let backend = null, user = null, busy = false, pushTimer = null, pollTimer = null;
+  let status = 'off', statusMsg = '', lastOkAt = null, pendingChoice = null, lastInteraction = Date.now();
+
+  function rj(k, def){ try{ const v = _get.call(LSx, k); return v == null ? def : JSON.parse(v); }catch(e){ return def; } }
+  function wj(k, v){ try{ _set.call(LSx, k, JSON.stringify(v)); }catch(e){} }
+  function syncable(k){ return typeof k === 'string' && k.startsWith('mc_') && !k.startsWith('mc_sync_') && !/_collapsed$/.test(k) && k !== 'mc_money_hidden' && k !== 'mc_theme'; }
+  function getCfg(){ return rj(K.cfg, null) || MC_FIREBASE_DEFAULT; }
+  function configured(){ return !!(window.MC_SYNC_TEST_BACKEND || getCfg()); }
+  ['pointerdown','keydown','touchstart'].forEach(ev=> document.addEventListener(ev, ()=>{ lastInteraction = Date.now(); }, { passive:true }));
+
+  function setStatus(st, msg){ status = st; statusMsg = msg || ''; if(st === 'ok') lastOkAt = Date.now(); renderPanel(); }
+
+  // ----- marca o que mudou neste aparelho -----
+  function onLocalChange(k){
+    if(!configured() || !syncable(k)) return;
+    const meta = rj(K.meta, {}); meta[k] = Date.now(); wj(K.meta, meta);
+    const dirty = new Set(rj(K.dirty, [])); dirty.add(k); wj(K.dirty, Array.from(dirty));
+    if(user){ clearTimeout(pushTimer); pushTimer = setTimeout(()=> cycle(), 1800); }
+  }
+  window.__mcSyncHook = onLocalChange;
+  (window.__mcSyncQueue || []).forEach(onLocalChange);
+  window.__mcSyncQueue = [];
+
+  // ----- aplicar um item que veio da nuvem -----
+  function applyRemote(d, meta){
+    const local = _get.call(LSx, d.key);
+    let changed = false;
+    if(d.d){ if(local !== null){ _rem.call(LSx, d.key); changed = true; } }
+    else if(local !== d.v){ _set.call(LSx, d.key, d.v); changed = true; }
+    meta[d.key] = d.t;
+    return changed;
+  }
+
+  // ----- enviar o que está pendente -----
+  async function pushDirty(){
+    const meta = rj(K.meta, {});
+    const keys = rj(K.dirty, []);
+    if(!keys.length) return;
+    const items = [], sent = {};
+    keys.forEach(k=>{
+      const v = _get.call(LSx, k);
+      const t = meta[k] || Date.now();
+      if(v === null){ items.push({ key:k, v:'', t, d:true }); sent[k] = t; }
+      else if(v.length > 900000){ /* grande demais para a nuvem: ignora */ }
+      else { items.push({ key:k, v, t, d:false }); sent[k] = t; }
+    });
+    if(items.length) await backend.push(items);
+    const meta2 = rj(K.meta, {});
+    const left = rj(K.dirty, []).filter(k=> !(k in sent) || (meta2[k] || 0) !== sent[k]);
+    wj(K.dirty, left);
+  }
+
+  // ----- um ciclo: baixa o que é novo, envia o pendente -----
+  async function cycle(){
+    if(!backend || !user || busy || status === 'choice') return;
+    if(!_get.call(LSx, K.last)){ return initialSync(); }
+    busy = true; setStatus('syncing');
+    try{
+      const last = rj(K.last, 0);
+      const docs = await backend.pull(last);
+      const meta = rj(K.meta, {});
+      const dirty = new Set(rj(K.dirty, []));
+      let changed = false, maxSt = last;
+      docs.forEach(d=>{
+        maxSt = Math.max(maxSt, d.st || 0);
+        const lt = meta[d.key] || 0;
+        if(dirty.has(d.key) && lt >= d.t) return;       // o deste aparelho é mais novo: será enviado
+        if(d.t > lt || lt === 0){
+          if(applyRemote(d, meta)) changed = true;
+          dirty.delete(d.key);
+        }
+      });
+      wj(K.meta, meta); wj(K.dirty, Array.from(dirty)); wj(K.last, Math.max(maxSt, 1));
+      await pushDirty();
+      setStatus('ok');
+      if(changed) maybeReload();
+    }catch(e){ setStatus('error', friendlyError(e)); }
+    finally{ busy = false; }
+  }
+
+  // ----- primeira sincronização deste aparelho -----
+  async function initialSync(prefer){
+    if(!backend || !user || busy) return;
+    busy = true; setStatus('syncing');
+    try{
+      const remote = await backend.pull(0);
+      const rmap = {}; remote.forEach(d=> rmap[d.key] = d);
+      const localKeys = [];
+      for(let i = 0; i < LSx.length; i++){ const k = LSx.key(i); if(syncable(k)) localKeys.push(k); }
+      const conflicts = localKeys.filter(k=> rmap[k] && !rmap[k].d && rmap[k].v !== _get.call(LSx, k));
+      if(conflicts.length && !prefer){
+        pendingChoice = { n:conflicts.length };
+        busy = false; setStatus('choice'); showBanner('☁ Escolha como juntar os dados deste aparelho com a nuvem', 'Abrir', ()=>{ handleNavAction('config'); });
+        return;
+      }
+      prefer = prefer || 'cloud';
+      const meta = {}, dirty = new Set(); let changed = false, maxSt = 0; const now = Date.now();
+      remote.forEach(d=>{
+        maxSt = Math.max(maxSt, d.st || 0);
+        const lv = _get.call(LSx, d.key);
+        if(lv === null){ if(!d.d && applyRemote(d, meta)) changed = true; else meta[d.key] = d.t; }
+        else if(d.d){ if(prefer === 'cloud'){ if(applyRemote(d, meta)) changed = true; } else { meta[d.key] = now; dirty.add(d.key); } }
+        else if(lv === d.v){ meta[d.key] = d.t; }
+        else if(prefer === 'cloud'){ if(applyRemote(d, meta)) changed = true; }
+        else { meta[d.key] = now; dirty.add(d.key); }
+      });
+      localKeys.forEach(k=>{ if(!rmap[k]){ meta[k] = now; dirty.add(k); } });
+      wj(K.meta, meta); wj(K.dirty, Array.from(dirty)); wj(K.last, Math.max(maxSt, 1));
+      pendingChoice = null;
+      await pushDirty();
+      busy = false; setStatus('ok');
+      hideBanner();
+      if(changed) maybeReload();
+    }catch(e){ busy = false; setStatus('error', friendlyError(e)); }
+  }
+
+  function friendlyError(e){
+    const c = (e && (e.code || e.message)) ? String(e.code || e.message) : String(e);
+    if(/invalid-credential|wrong-password|user-not-found/.test(c)) return 'E-mail ou senha incorretos.';
+    if(/email-already-in-use/.test(c)) return 'Esse e-mail já tem conta. Use "Entrar".';
+    if(/weak-password/.test(c)) return 'A senha precisa ter pelo menos 6 caracteres.';
+    if(/invalid-email/.test(c)) return 'E-mail inválido.';
+    if(/permission-denied|insufficient/.test(c)) return 'A nuvem recusou o acesso. Confira as regras do Firestore (passo 5 do guia).';
+    if(/network|unavailable|Failed to fetch|offline/.test(c)) return 'Sem conexão com a nuvem agora.';
+    if(/operation-not-allowed/.test(c)) return 'Ative "E-mail/senha" em Authentication no Firebase.';
+    return c;
+  }
+
+  // ----- avisar / recarregar quando chegam dados de outro aparelho -----
+  function maybeReload(){
+    const ae = document.activeElement;
+    const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable);
+    const modalOpen = document.querySelector('.app-modal-overlay.open, #qtSheet.open');
+    const recent = Date.now() - lastInteraction < 4000;
+    let just = 0; try{ just = +sessionStorage.getItem('mc_sync_reloaded') || 0; }catch(e){}
+    if(!typing && !modalOpen && !recent && Date.now() - just > 10000){
+      try{ sessionStorage.setItem('mc_sync_reloaded', String(Date.now())); }catch(e){}
+      if(typeof showToast === 'function') showToast('☁ Atualizando com dados de outro aparelho…');
+      setTimeout(()=> location.reload(), 700);
+    } else {
+      showBanner('☁ Há dados novos de outro aparelho', 'Atualizar', ()=> location.reload());
+    }
+  }
+  function showBanner(text, btn, fn){
+    let b = document.getElementById('syncBanner');
+    if(!b){ b = document.createElement('div'); b.id = 'syncBanner'; document.body.appendChild(b); }
+    b.innerHTML = '<span></span><b></b>';
+    b.firstChild.textContent = text; b.lastChild.textContent = btn;
+    b.lastChild.onclick = ()=>{ hideBanner(); fn(); };
+    b.classList.add('show');
+  }
+  function hideBanner(){ const b = document.getElementById('syncBanner'); if(b) b.classList.remove('show'); }
+
+  // ----- backend Firebase -----
+  async function makeFirebaseBackend(cfg){
+    const base = 'https://www.gstatic.com/firebasejs/'+SDK+'/';
+    const [appM, authM, fsM] = await Promise.all([ import(base+'firebase-app.js'), import(base+'firebase-auth.js'), import(base+'firebase-firestore.js') ]);
+    const app = appM.getApps().length ? appM.getApp() : appM.initializeApp(cfg);
+    const auth = authM.getAuth(app), db = fsM.getFirestore(app);
+    let uid = null;
+    return {
+      onAuth(cb){ authM.onAuthStateChanged(auth, u=>{ uid = u ? u.uid : null; cb(u ? { uid:u.uid, email:u.email } : null); }); },
+      async login(email, pass){ await authM.signInWithEmailAndPassword(auth, email, pass); },
+      async register(email, pass){ await authM.createUserWithEmailAndPassword(auth, email, pass); },
+      async logout(){ await authM.signOut(auth); },
+      async pull(since){
+        const col = fsM.collection(db, 'users', uid, 'kv');
+        const q = since > 0 ? fsM.query(col, fsM.where('st', '>=', fsM.Timestamp.fromMillis(since)), fsM.orderBy('st')) : fsM.query(col, fsM.orderBy('st'));
+        const snap = await fsM.getDocs(q);
+        return snap.docs.map(x=>{ const o = x.data(); return { key:o.k, v:o.v, t:o.t, d:!!o.d, st:(o.st && o.st.toMillis) ? o.st.toMillis() : 0 }; });
+      },
+      async push(items){
+        for(let i = 0; i < items.length; i += 400){
+          const b = fsM.writeBatch(db);
+          items.slice(i, i+400).forEach(it=> b.set(fsM.doc(db, 'users', uid, 'kv', it.key), { k:it.key, v:it.d ? '' : it.v, t:it.t, d:!!it.d, st:fsM.serverTimestamp() }));
+          await b.commit();
+        }
+      }
+    };
+  }
+
+  function stop(){ clearInterval(pollTimer); pollTimer = null; clearTimeout(pushTimer); }
+  function start(){
+    stop();
+    pollTimer = setInterval(()=>{ if(document.visibilityState === 'visible') cycle(); }, POLL_MS);
+    cycle();
+  }
+  async function init(){
+    if(backend) return;
+    if(!configured()){ setStatus('off'); return; }
+    try{
+      setStatus('syncing');
+      backend = window.MC_SYNC_TEST_BACKEND || await makeFirebaseBackend(getCfg());
+      backend.onAuth(u=>{
+        user = u;
+        if(u){ setStatus('ok'); start(); } else { stop(); setStatus('loggedout'); }
+      });
+    }catch(e){ backend = null; setStatus('error', navigator.onLine ? ('Não consegui carregar o Firebase: '+friendlyError(e)) : 'Sem internet para conectar agora.'); }
+  }
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') cycle(); else if(user) pushDirty().catch(()=>{}); });
+  window.addEventListener('online', ()=> cycle());
+  window.addEventListener('pagehide', ()=>{ if(user) pushDirty().catch(()=>{}); });
+
+  // ----- ações da tela -----
+  function parseConfig(text){
+    const out = {}; let m; const re = /([A-Za-z]\w*)\s*:\s*["']([^"']+)["']/g;
+    while((m = re.exec(text))) out[m[1]] = m[2];
+    return (out.apiKey && out.projectId) ? out : null;
+  }
+  async function saveConfig(text){
+    const cfg = parseConfig(text || '');
+    if(!cfg){ setStatus('error', 'Não achei a configuração. Cole o bloco inteiro "firebaseConfig" que o Firebase mostra (precisa ter apiKey e projectId).'); return; }
+    wj(K.cfg, cfg);
+    backend = null; user = null;
+    await init();
+  }
+  async function doAuth(kind, email, pass){
+    if(!backend){ await init(); }
+    if(!backend){ return; }
+    try{
+      setStatus('syncing');
+      if(kind === 'register') await backend.register(email, pass); else await backend.login(email, pass);
+    }catch(e){ setStatus('error', friendlyError(e)); }
+  }
+  async function logout(){
+    try{ if(backend) await backend.logout(); }catch(e){}
+    user = null; stop();
+    _rem.call(LSx, K.last);
+    setStatus('loggedout');
+  }
+  function forgetConfig(){ _rem.call(LSx, K.cfg); backend = null; user = null; stop(); setStatus('off'); }
+
+  // ----- painel em Configurações -----
+  function esc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function renderPanel(){
+    const box = document.getElementById('syncPanel');
+    if(!box) return;
+    let html = '<div class="sync-box"><div style="font-size:13px; font-weight:600;">☁ Sincronizar entre aparelhos</div>';
+    if(!configured()){
+      html += `<div class="sync-note">Para o celular e o notebook mostrarem os mesmos dados. Crie um projeto grátis no Firebase (passo a passo no guia) e cole aqui a configuração dele.</div>
+        <textarea id="syncCfgText" placeholder='const firebaseConfig = {&#10;  apiKey: "...",&#10;  authDomain: "...",&#10;  projectId: "...",&#10;  ...&#10;};'></textarea>
+        <div class="row"><button class="ghost-btn primary" id="syncCfgSave">Salvar configuração</button></div>`;
+    } else if(status === 'choice' && user){
+      html += `<div class="sync-note">Este aparelho já tem dados e a nuvem também, e <b>${pendingChoice ? pendingChoice.n : 'alguns'} item(ns)</b> são diferentes. Qual vale?</div>
+        <div class="row" style="flex-direction:column;">
+          <button class="ghost-btn primary" id="syncChoiceCloud">Usar os dados da nuvem</button>
+          <button class="ghost-btn" id="syncChoiceLocal">Usar os dados deste aparelho</button>
+        </div>
+        <div class="sync-note">O que existir só de um lado é mantido nos dois. Só os itens iguais nos dois lados e diferentes são decididos por essa escolha. Dica: se tiver dúvida, exporte um backup antes.</div>`;
+    } else if(user){
+      html += `<div class="sync-note">Conectado como <b>${esc(user.email)}</b></div>`;
+      const stTxt = status === 'syncing' ? 'Sincronizando…' : status === 'error' ? ('⚠ '+esc(statusMsg)) : ('✓ Sincronizado'+(lastOkAt ? ' às '+new Date(lastOkAt).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) : ''));
+      html += `<div class="sync-note ${status==='error'?'sync-err':'sync-ok'}">${stTxt}</div>
+        <div class="row"><button class="ghost-btn" id="syncNow">↻ Sincronizar agora</button><button class="ghost-btn" id="syncOut">Sair</button></div>
+        <div class="sync-note">Funciona sozinho: o que você muda aqui aparece nos outros aparelhos em instantes (quando abertos e com internet).</div>`;
+    } else {
+      html += `<div class="sync-note">Entre com e-mail e senha (a mesma conta em todos os aparelhos). Se ainda não tem, toque em "Criar conta".</div>
+        <input id="syncEmail" type="email" autocomplete="email" placeholder="seu e-mail">
+        <input id="syncPass" type="password" autocomplete="current-password" placeholder="senha (mínimo 6 caracteres)">
+        <div class="row"><button class="ghost-btn primary" id="syncLogin">Entrar</button><button class="ghost-btn" id="syncReg">Criar conta</button></div>
+        ${status==='error' ? `<div class="sync-note sync-err">⚠ ${esc(statusMsg)}</div>` : (status==='syncing' ? '<div class="sync-note">Conectando…</div>' : '')}
+        <div class="sync-note"><a href="#" id="syncForget" style="color:var(--tx-low);">Trocar configuração do Firebase</a></div>`;
+    }
+    html += '</div>';
+    box.innerHTML = html;
+    const $ = id => document.getElementById(id);
+    if($('syncCfgSave')) $('syncCfgSave').addEventListener('click', ()=> saveConfig($('syncCfgText').value));
+    if($('syncChoiceCloud')) $('syncChoiceCloud').addEventListener('click', ()=>{ status = 'ok'; initialSync('cloud'); });
+    if($('syncChoiceLocal')) $('syncChoiceLocal').addEventListener('click', ()=>{ status = 'ok'; initialSync('local'); });
+    if($('syncNow')) $('syncNow').addEventListener('click', ()=> cycle());
+    if($('syncOut')) $('syncOut').addEventListener('click', ()=> logout());
+    if($('syncLogin')) $('syncLogin').addEventListener('click', ()=> doAuth('login', $('syncEmail').value.trim(), $('syncPass').value));
+    if($('syncReg')) $('syncReg').addEventListener('click', ()=> doAuth('register', $('syncEmail').value.trim(), $('syncPass').value));
+    if($('syncForget')) $('syncForget').addEventListener('click', e=>{ e.preventDefault(); forgetConfig(); });
+  }
+
+  setTimeout(init, 1200);
+  return { init, cycle, renderPanel, saveConfig, _state:()=>({ status, statusMsg, user, pendingChoice }) };
+})();
+window.MCSync = MCSync;
 
 // ============ PWA: service worker (só funciona em http(s), não abrindo o arquivo direto) ============
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
