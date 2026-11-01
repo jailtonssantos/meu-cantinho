@@ -6481,7 +6481,14 @@ setupCollapsibleList('toggleEmergencyBtn', 'emergencyBody', 'mc_emergency_collap
 // ============ SINCRONIZAÇÃO NA NUVEM (Firebase: conta + Firestore) ============
 // Cada chave mc_* do app vira um documento em users/{uid}/kv. Vale o mais recente (por item).
 // Para os dois aparelhos usarem a mesma conta, é preciso colar a configuração do Firebase (Configurações → Sincronização).
-const MC_FIREBASE_DEFAULT = null;   // opcional: colar aqui o objeto firebaseConfig para não precisar colar em cada aparelho
+const MC_FIREBASE_DEFAULT = {
+  apiKey: "AIzaSyDLRMwpugW6_xuMqeXQIxa2G9ya_bsPjLc",
+  authDomain: "meu-cantinho-5337d.firebaseapp.com",
+  projectId: "meu-cantinho-5337d",
+  storageBucket: "meu-cantinho-5337d.firebasestorage.app",
+  messagingSenderId: "895219179577",
+  appId: "1:895219179577:web:279c2b79e5afbc519d6de8"
+};   // opcional: colar aqui o objeto firebaseConfig para não precisar colar em cada aparelho
 const MCSync = (function(){
   const LSx = window.localStorage;
   const _get = Storage.prototype.getItem, _set = Storage.prototype.setItem, _rem = Storage.prototype.removeItem;
