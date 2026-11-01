@@ -2571,6 +2571,10 @@ renderAgenda();
 
 // ============ FOCO ATUAL (Próxima Ação): auto pela agenda, ou escolha manual ============
 let focusTask = { name:'Ler 20 páginas', icon:'📖' };
+try{
+  const savedFt = JSON.parse(localStorage.getItem('mc_focus_task') || 'null');
+  if(savedFt && savedFt.d === dayStamp() && savedFt.name){ focusTask = { name:savedFt.name, icon:savedFt.icon }; }
+}catch(e){}
 function guessIcon(name){
   const n = name.toLowerCase();
   if(n.includes('ler') || n.includes('livro')) return '📖';
@@ -2583,6 +2587,7 @@ function guessIcon(name){
 }
 function setFocusTask(name, icon){
   focusTask = { name, icon };
+  try{ localStorage.setItem('mc_focus_task', JSON.stringify({ d:dayStamp(), name, icon })); }catch(e){}
   document.getElementById('heroTaskName').textContent = name;
   document.getElementById('heroIcon').textContent = icon;
   if(typeof resetPomodoro === 'function') resetPomodoro();
@@ -2813,6 +2818,11 @@ let transactions = [
   { name:'Mercado', amount:-320 },
   { name:'Academia', amount:-120 }
 ];
+try{
+  const savedFin = JSON.parse(localStorage.getItem('mc_finance_v2') || 'null');
+  if(savedFin && Array.isArray(savedFin.tx) && typeof savedFin.avail === 'number'){ financeAvailable = savedFin.avail; transactions = savedFin.tx; }
+}catch(e){}
+function saveFinance(){ try{ localStorage.setItem('mc_finance_v2', JSON.stringify({ avail:financeAvailable, tx:transactions })); }catch(e){} }
 function fmtBRL(n){
   return (n<0?'-':'') + 'R$ ' + Math.abs(n).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
 }
@@ -2820,6 +2830,7 @@ let moneyHidden = false;
 try{ moneyHidden = localStorage.getItem('mc_money_hidden') === '1'; }catch(e){}
 function maskMoney(str){ return moneyHidden ? '••••••' : str; }
 function renderFinanceCard(){
+  saveFinance();
   const entradas = transactions.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
   const despesas = Math.abs(transactions.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0));
   const savingsPct = entradas>0 ? Math.round(((entradas-despesas)/entradas)*100) : 0;
@@ -2913,7 +2924,13 @@ let workGoals = [
     ], done:false, earned:0, txIndex:-1 },
 ];
 
+try{
+  const savedWG = JSON.parse(localStorage.getItem('mc_workgoals_v2') || 'null');
+  if(Array.isArray(savedWG)) workGoals = savedWG;
+}catch(e){}
+function saveWorkGoals(){ try{ localStorage.setItem('mc_workgoals_v2', JSON.stringify(workGoals)); }catch(e){} }
 function renderWorkGoals(){
+  saveWorkGoals();
   const list = document.getElementById('workGoalsList');
   list.innerHTML = '';
   let totalEarned = 0;
@@ -3041,7 +3058,12 @@ document.getElementById('addWorkGoalBtn').addEventListener('click', ()=>{
 
 // ============ READING ============
 let currentPage = 142, totalPages = 280;
+try{
+  const savedRd = JSON.parse(localStorage.getItem('mc_reading_v2') || 'null');
+  if(savedRd && savedRd.total > 0){ currentPage = savedRd.cur; totalPages = savedRd.total; }
+}catch(e){}
 function renderReading(){
+  try{ localStorage.setItem('mc_reading_v2', JSON.stringify({ cur:currentPage, total:totalPages })); }catch(e){}
   const pct = Math.round((currentPage/totalPages)*100);
   document.getElementById('readingPagesLabel').textContent = `Página ${currentPage}/${totalPages}`;
   document.getElementById('readingPctLabel').textContent = pct+'%';
