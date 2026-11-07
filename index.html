@@ -6495,7 +6495,7 @@ const MCSync = (function(){
   const K = { meta:'mc_sync_meta', dirty:'mc_sync_dirty', last:'mc_sync_last', cfg:'mc_sync_cfg' };
   const POLL_MS = 90000, SDK = '10.12.2';
   let backend = null, user = null, busy = false, pushTimer = null, pollTimer = null;
-  let status = 'off', statusMsg = '', lastOkAt = null, pendingChoice = null, lastInteraction = Date.now();
+  let status = 'off', statusMsg = '', lastOkAt = null, pendingChoice = null, lastInteraction = Date.now(), lastEmail = '';
 
   function rj(k, def){ try{ const v = _get.call(LSx, k); return v == null ? def : JSON.parse(v); }catch(e){ return def; } }
   function wj(k, v){ try{ _set.call(LSx, k, JSON.stringify(v)); }catch(e){} }
@@ -6612,7 +6612,7 @@ const MCSync = (function(){
 
   function friendlyError(e){
     const c = (e && (e.code || e.message)) ? String(e.code || e.message) : String(e);
-    if(/invalid-credential|wrong-password|user-not-found/.test(c)) return 'E-mail ou senha incorretos.';
+    if(/invalid-credential|wrong-password|user-not-found/.test(c)) return 'E-mail ou senha incorretos — ou a conta ainda não existe. Se for a primeira vez, toque em "Criar conta".';
     if(/email-already-in-use/.test(c)) return 'Esse e-mail já tem conta. Use "Entrar".';
     if(/weak-password/.test(c)) return 'A senha precisa ter pelo menos 6 caracteres.';
     if(/invalid-email/.test(c)) return 'E-mail inválido.';
@@ -6659,6 +6659,7 @@ const MCSync = (function(){
       async login(email, pass){ await authM.signInWithEmailAndPassword(auth, email, pass); },
       async register(email, pass){ await authM.createUserWithEmailAndPassword(auth, email, pass); },
       async logout(){ await authM.signOut(auth); },
+      async resetPassword(email){ await authM.sendPasswordResetEmail(auth, email); },
       async pull(since){
         const col = fsM.collection(db, 'users', uid, 'kv');
         const q = since > 0 ? fsM.query(col, fsM.where('st', '>=', fsM.Timestamp.fromMillis(since)), fsM.orderBy('st')) : fsM.query(col, fsM.orderBy('st'));
@@ -6715,8 +6716,23 @@ const MCSync = (function(){
     if(!backend){ return; }
     try{
       setStatus('syncing');
+      lastEmail = email;
       if(kind === 'register') await backend.register(email, pass); else await backend.login(email, pass);
     }catch(e){ setStatus('error', friendlyError(e)); }
+  }
+  async function resetPassword(email){
+    email = (email || '').trim();
+    if(!email){ setStatus('error', 'Digite o seu e-mail no campo acima e toque em "Esqueci a senha" de novo.'); return; }
+    if(!backend){ await init(); }
+    if(!backend || !backend.resetPassword){ return; }
+    try{
+      setStatus('syncing');
+      await backend.resetPassword(email);
+      setStatus('info', 'Enviei um e-mail para '+email+' com o link para criar uma senha nova. Olhe também a caixa de spam.');
+    }catch(e){
+      const c = String((e && (e.code || e.message)) || e);
+      setStatus('error', /user-not-found/.test(c) ? 'Não existe conta com esse e-mail.' : friendlyError(e));
+    }
   }
   async function logout(){
     try{ if(backend) await backend.logout(); }catch(e){}
@@ -6751,11 +6767,11 @@ const MCSync = (function(){
         <div class="sync-note">Funciona sozinho: o que você muda aqui aparece nos outros aparelhos em instantes (quando abertos e com internet).</div>`;
     } else {
       html += `<div class="sync-note">Entre com e-mail e senha (a mesma conta em todos os aparelhos). Se ainda não tem, toque em "Criar conta".</div>
-        <input id="syncEmail" type="email" autocomplete="email" placeholder="seu e-mail">
+        <input id="syncEmail" type="email" autocomplete="email" placeholder="seu e-mail" value="${esc(lastEmail)}">
         <input id="syncPass" type="password" autocomplete="current-password" placeholder="senha (mínimo 6 caracteres)">
         <div class="row"><button class="ghost-btn primary" id="syncLogin">Entrar</button><button class="ghost-btn" id="syncReg">Criar conta</button></div>
-        ${status==='error' ? `<div class="sync-note sync-err">⚠ ${esc(statusMsg)}</div>` : (status==='syncing' ? '<div class="sync-note">Conectando…</div>' : '')}
-        <div class="sync-note"><a href="#" id="syncForget" style="color:var(--tx-low);">Trocar configuração do Firebase</a></div>`;
+        ${status==='error' ? `<div class="sync-note sync-err">⚠ ${esc(statusMsg)}</div>` : status==='info' ? `<div class="sync-note sync-ok">✓ ${esc(statusMsg)}</div>` : (status==='syncing' ? '<div class="sync-note">Conectando…</div>' : '')}
+        <div class="sync-note"><a href="#" id="syncReset" style="color:var(--violet-2);">Esqueci a senha</a> &nbsp;·&nbsp; <a href="#" id="syncForget" style="color:var(--tx-low);">Trocar configuração do Firebase</a></div>`;
     }
     html += '</div>';
     box.innerHTML = html;
@@ -6768,6 +6784,8 @@ const MCSync = (function(){
     if($('syncLogin')) $('syncLogin').addEventListener('click', ()=> doAuth('login', $('syncEmail').value.trim(), $('syncPass').value));
     if($('syncReg')) $('syncReg').addEventListener('click', ()=> doAuth('register', $('syncEmail').value.trim(), $('syncPass').value));
     if($('syncForget')) $('syncForget').addEventListener('click', e=>{ e.preventDefault(); forgetConfig(); });
+    if($('syncEmail')) $('syncEmail').addEventListener('input', e=>{ lastEmail = e.target.value; });
+    if($('syncReset')) $('syncReset').addEventListener('click', e=>{ e.preventDefault(); resetPassword($('syncEmail').value); });
   }
 
   setTimeout(init, 1200);
