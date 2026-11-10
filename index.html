@@ -471,6 +471,9 @@ a{ color:inherit; text-decoration:none; }
 .donut-caption{ font-size:8.5px; color:var(--tx-low); text-align:center; line-height:1.3; }
 .tx-list{ display:flex; flex-direction:column; gap:9px; margin-top:4px; }
 .tx-row{ display:flex; justify-content:space-between; font-size:11.5px; }
+.tx-click{ cursor:pointer; padding:4px 0; border-radius:6px; }
+.tx-click:hover{ background:rgba(255,255,255,0.05); }
+.tx-edit-in{ width:100%; min-width:0; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--tx-hi); font-size:13px; }
 .tx-name{ color:var(--tx-mid); }
 .tx-amt.in{ color:var(--green); }
 .tx-amt.out{ color:var(--red); }
@@ -2833,17 +2836,39 @@ renderGoalsEditor();
 function openGoalsModal(){ handleNavAction('metas'); }
 
 // ============ FINANCE ============
+let financeBase = 230;      // saldo de antes das transações (editável)
 let financeAvailable = 1240;
 let transactions = [
-  { name:'Salário', amount:1450 },
-  { name:'Mercado', amount:-320 },
-  { name:'Academia', amount:-120 }
+  { id:'tx1', name:'Salário', amount:1450 },
+  { id:'tx2', name:'Mercado', amount:-320 },
+  { id:'tx3', name:'Academia', amount:-120 }
 ];
+let _txSeq = 0;
+function newTxId(){ return 'tx'+Date.now().toString(36)+(++_txSeq); }
+function txSum(){ return transactions.reduce((s,t)=>s+t.amount,0); }
+function round2(n){ return Math.round(n*100)/100; }
 try{
   const savedFin = JSON.parse(localStorage.getItem('mc_finance_v2') || 'null');
-  if(savedFin && Array.isArray(savedFin.tx) && typeof savedFin.avail === 'number'){ financeAvailable = savedFin.avail; transactions = savedFin.tx; }
+  if(savedFin && Array.isArray(savedFin.tx) && typeof savedFin.avail === 'number'){
+    transactions = savedFin.tx;
+    financeBase = (typeof savedFin.base === 'number') ? savedFin.base : round2(savedFin.avail - txSum());
+  }
 }catch(e){}
-function saveFinance(){ try{ localStorage.setItem('mc_finance_v2', JSON.stringify({ avail:financeAvailable, tx:transactions })); }catch(e){} }
+transactions.forEach(t=>{ if(!t.id) t.id = newTxId(); });
+financeAvailable = round2(financeBase + txSum());
+function saveFinance(){ try{ localStorage.setItem('mc_finance_v2', JSON.stringify({ avail:financeAvailable, base:financeBase, tx:transactions })); }catch(e){} }
+function escTx(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function parseMoney(str){
+  let v = String(str==null?'':str).replace(/R\$|\s/g,'');
+  if(v.indexOf(',')>=0) v = v.replace(/\./g,'').replace(',','.');
+  const n = parseFloat(v);
+  return isNaN(n) ? NaN : n;
+}
+function moneyField(n){ return Math.abs(n).toFixed(2).replace('.',','); }
+function removeGoalTx(goal){
+  const i = transactions.findIndex(t=>t.id===goal.txId);
+  if(i>=0){ transactions.splice(i,1); renderFinanceCard(); }
+}
 function fmtBRL(n){
   return (n<0?'-':'') + 'R$ ' + Math.abs(n).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
 }
@@ -2851,6 +2876,7 @@ let moneyHidden = false;
 try{ moneyHidden = localStorage.getItem('mc_money_hidden') === '1'; }catch(e){}
 function maskMoney(str){ return moneyHidden ? '••••••' : str; }
 function renderFinanceCard(){
+  financeAvailable = round2(financeBase + txSum());
   saveFinance();
   const entradas = transactions.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
   const despesas = Math.abs(transactions.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0));
@@ -2862,53 +2888,123 @@ function renderFinanceCard(){
   document.getElementById('donutRing').style.strokeDashoffset = 245 - (245*Math.max(0,Math.min(100,savingsPct))/100);
   const list = document.getElementById('txList');
   list.innerHTML = transactions.slice(-3).reverse().map(t=>
-    `<div class="tx-row"><span class="tx-name">${t.name}</span><span class="tx-amt ${t.amount>=0?'in':'out'}">${maskMoney((t.amount>=0?'+':'')+fmtBRL(t.amount))}</span></div>`
+    `<div class="tx-row tx-click" data-txid="${t.id}" title="Toque para editar"><span class="tx-name">${escTx(t.name)}</span><span class="tx-amt ${t.amount>=0?'in':'out'}">${maskMoney((t.amount>=0?'+':'')+fmtBRL(t.amount))} ✎</span></div>`
   ).join('');
   const eyeBtn = document.getElementById('toggleMoneyBtn');
   if(eyeBtn) eyeBtn.textContent = moneyHidden ? '🙈' : '👁';
   if(typeof renderQuickInfo === 'function') renderQuickInfo();
 }
+document.getElementById('txList').addEventListener('click', e=>{
+  const r = e.target.closest('[data-txid]');
+  if(r) openFinanceModal(r.dataset.txid);
+});
 document.getElementById('toggleMoneyBtn').addEventListener('click', ()=>{
   moneyHidden = !moneyHidden;
   try{ localStorage.setItem('mc_money_hidden', moneyHidden ? '1':'0'); }catch(e){}
   renderFinanceCard();
 });
-function financeModalHtml(){
-  const rows = transactions.slice().reverse().map(t=>
-    `<div class="tx-row" style="padding:9px 0; border-bottom:1px solid var(--border);"><span class="tx-name">${t.name}</span><span class="tx-amt ${t.amount>=0?'in':'out'}">${t.amount>=0?'+':''}${fmtBRL(t.amount)}</span></div>`
-  ).join('');
+function financeModalHtml(editId){
+  const inp = 'background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--tx-hi); font-size:13px;';
+  const rows = transactions.slice().reverse().map(t=>{
+    if(t.id===editId){
+      return `<div style="padding:12px 0; border-bottom:1px solid var(--border);">
+        <input class="tx-edit-in" type="text" id="editTxName" value="${escTx(t.name)}" placeholder="Descrição">
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input class="tx-edit-in" type="text" inputmode="decimal" id="editTxAmount" value="${moneyField(t.amount)}" placeholder="Valor" style="flex:1;">
+          <select id="editTxType" style="${inp} max-width:110px;"><option value="in" ${t.amount>=0?'selected':''}>Entrada</option><option value="out" ${t.amount<0?'selected':''}>Despesa</option></select>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="ghost-btn primary" id="saveTxBtn" style="width:auto; padding:10px 16px;">Salvar</button>
+          <button class="ghost-btn" id="cancelTxBtn" style="width:auto; padding:10px 16px;">Cancelar</button>
+        </div></div>`;
+    }
+    return `<div class="tx-row" style="padding:9px 0; border-bottom:1px solid var(--border); align-items:center; gap:8px;"><span class="tx-name" style="flex:1;">${escTx(t.name)}</span><span class="tx-amt ${t.amount>=0?'in':'out'}">${t.amount>=0?'+':''}${fmtBRL(t.amount)}</span><span class="work-mini-btn" data-tx-edit="${t.id}" title="Editar" style="opacity:.8;">✎</span><span class="work-mini-btn" data-tx-del="${t.id}" title="Apagar" style="opacity:.8;">✕</span></div>`;
+  }).join('');
   return `
     <div class="modal-form-row">
       <label>Nova transação</label>
       <input type="text" id="newTxName" placeholder="Descrição (ex: Freelance)">
     </div>
     <div style="display:flex; gap:10px; margin-bottom:14px;">
-      <input type="number" id="newTxAmount" placeholder="Valor" style="flex:1; min-width:0; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--tx-hi); font-size:13px;">
-      <select id="newTxType" style="min-width:0; max-width:110px; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--tx-hi); font-size:13px;">
+      <input type="text" inputmode="decimal" id="newTxAmount" placeholder="Valor" style="flex:1; min-width:0; ${inp}">
+      <select id="newTxType" style="min-width:0; max-width:110px; ${inp}">
         <option value="in">Entrada</option>
         <option value="out">Despesa</option>
       </select>
       <button class="ghost-btn primary" id="addTxBtn" style="width:auto; padding:10px 16px;">+ Add</button>
     </div>
     <div id="txFullList">${rows}</div>
+    <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+      <div class="finance-mini-label" style="margin-bottom:6px;">Saldo de antes das transações</div>
+      <div style="display:flex; gap:10px;">
+        <input type="text" inputmode="decimal" id="baseInput" value="${(financeBase<0?'-':'')+moneyField(financeBase)}" style="flex:1; min-width:0; ${inp}">
+        <button class="ghost-btn" id="saveBaseBtn" style="width:auto; padding:10px 16px;">Salvar</button>
+      </div>
+      <div class="finance-mini-label" style="margin-top:6px;">Saldo disponível = este valor + entradas − despesas.</div>
+    </div>
   `;
 }
-function openFinanceModal(){
-  openModal('💰 Finanças', financeModalHtml());
-  document.getElementById('addTxBtn').addEventListener('click', ()=>{
-    const name = document.getElementById('newTxName').value.trim();
-    const val = parseFloat(document.getElementById('newTxAmount').value);
-    const type = document.getElementById('newTxType').value;
+function openFinanceModal(editId){
+  if(typeof editId !== 'string') editId = null;
+  openModal('💰 Finanças', financeModalHtml(editId));
+  const $ = id => document.getElementById(id);
+  $('addTxBtn').addEventListener('click', ()=>{
+    const name = $('newTxName').value.trim();
+    const val = parseMoney($('newTxAmount').value);
+    const type = $('newTxType').value;
     if(!name || isNaN(val) || val<=0){ showToast('Preencha nome e valor'); return; }
-    const amount = type==='in' ? val : -val;
-    transactions.push({ name, amount });
-    financeAvailable += amount;
+    transactions.push({ id:newTxId(), name, amount: type==='in' ? val : -val });
     renderFinanceCard();
     openFinanceModal();
     showToast('✓ Transação adicionada');
   });
+  $('saveBaseBtn').addEventListener('click', ()=>{
+    const v = parseMoney($('baseInput').value);
+    if(isNaN(v)){ showToast('Digite um valor válido'); return; }
+    financeBase = round2(v);
+    renderFinanceCard();
+    openFinanceModal();
+    showToast('✓ Saldo atualizado');
+  });
+  if(editId){
+    $('cancelTxBtn').addEventListener('click', ()=> openFinanceModal());
+    $('saveTxBtn').addEventListener('click', ()=>{
+      const t = transactions.find(x=>x.id===editId); if(!t) return;
+      const name = $('editTxName').value.trim();
+      const val = parseMoney($('editTxAmount').value);
+      const type = $('editTxType').value;
+      if(!name || isNaN(val) || val<=0){ showToast('Preencha nome e valor'); return; }
+      t.name = name;
+      t.amount = round2(type==='in' ? val : -val);
+      const g = (typeof workGoals!=='undefined') ? workGoals.find(x=>x.txId===editId) : null;
+      if(g){
+        if(t.amount>0){ g.earned = t.amount; }
+        else { g.done=false; g.earned=0; g.txId=null; g.txIndex=-1; }
+        renderWorkGoals();
+      }
+      renderFinanceCard();
+      openFinanceModal();
+      showToast('✓ Transação atualizada');
+    });
+    setTimeout(()=>{ const i=$('editTxAmount'); if(i){ i.focus(); i.select(); } }, 50);
+  }
+  $('txFullList').addEventListener('click', e=>{
+    const ed = e.target.closest('[data-tx-edit]');
+    if(ed){ openFinanceModal(ed.dataset.txEdit); return; }
+    const del = e.target.closest('[data-tx-del]');
+    if(del){
+      const t = transactions.find(x=>x.id===del.dataset.txDel); if(!t) return;
+      if(!confirm('Apagar "'+t.name+'"?')) return;
+      transactions = transactions.filter(x=>x.id!==t.id);
+      const g = (typeof workGoals!=='undefined') ? workGoals.find(x=>x.txId===t.id) : null;
+      if(g){ g.done=false; g.earned=0; g.txId=null; g.txIndex=-1; renderWorkGoals(); }
+      renderFinanceCard();
+      openFinanceModal();
+      showToast('Transação apagada');
+    }
+  });
 }
-document.getElementById('financeAllBtn').addEventListener('click', openFinanceModal);
+document.getElementById('financeAllBtn').addEventListener('click', ()=>openFinanceModal());
 renderFinanceCard();
 
 // ============ GANHAR DINHEIRO (work goals, linked to finance) ============
@@ -2949,6 +3045,7 @@ try{
   const savedWG = JSON.parse(localStorage.getItem('mc_workgoals_v2') || 'null');
   if(Array.isArray(savedWG)) workGoals = savedWG;
 }catch(e){}
+workGoals.forEach(g=>{ if(!g.txId && g.done && g.txIndex>=0 && transactions[g.txIndex]) g.txId = transactions[g.txIndex].id; });
 function saveWorkGoals(){ try{ localStorage.setItem('mc_workgoals_v2', JSON.stringify(workGoals)); }catch(e){} }
 function renderWorkGoals(){
   saveWorkGoals();
@@ -2993,20 +3090,18 @@ function renderWorkGoals(){
         if(isNaN(val) || val<=0){ showToast('Digite um valor válido'); return; }
         goal.done = true;
         goal.earned = val;
-        transactions.push({ name: goal.title, amount: val });
-        goal.txIndex = transactions.length - 1;
-        financeAvailable += val;
+        const newTx = { id:newTxId(), name: goal.title, amount: val };
+        transactions.push(newTx);
+        goal.txId = newTx.id;
+        goal.txIndex = -1;
         renderFinanceCard();
         bumpXp(15);
         showToast('🎉 +'+fmtBRL(val)+' lançado nas finanças! +15 XP');
       } else {
-        if(goal.txIndex >= 0 && transactions[goal.txIndex]){
-          transactions.splice(goal.txIndex, 1);
-          financeAvailable -= goal.earned;
-          renderFinanceCard();
-        }
+        removeGoalTx(goal);
         goal.done = false;
         goal.earned = 0;
+        goal.txId = null;
         goal.txIndex = -1;
         showToast('Desmarcado');
       }
@@ -3052,11 +3147,7 @@ function renderWorkGoals(){
       const gid = +btn.dataset.id;
       const goal = workGoals.find(g=>g.id===gid);
       if(!confirm('Excluir o objetivo "'+goal.title+'"?')) return;
-      if(goal.done && goal.txIndex>=0 && transactions[goal.txIndex]){
-        transactions.splice(goal.txIndex,1);
-        financeAvailable -= goal.earned;
-        renderFinanceCard();
-      }
+      if(goal.done) removeGoalTx(goal);
       workGoals = workGoals.filter(g=>g.id!==gid);
       renderWorkGoals();
       showToast('Objetivo removido');
@@ -4631,7 +4722,7 @@ const SITE_INDEX = [
   { keys:['calendário','calendario','agenda','evento'], label:'📅 Calendário', action:openCalendarModal },
   { keys:['hábito','habito','hábitos','habitos'], label:'◎ Hábitos', action:()=>{ closeModal(); scrollToSection('sectionHabitos'); } },
   { keys:['meta','metas','objetivo'], label:'🎯 Metas do mês', action:openGoalsModal },
-  { keys:['finança','financa','finanças','dinheiro','gasto','extrato'], label:'$ Finanças', action:openFinanceModal },
+  { keys:['finança','financa','finanças','dinheiro','gasto','extrato'], label:'$ Finanças', action:()=>openFinanceModal() },
   { keys:['nota','notas','anotação'], label:'▤ Notas rápidas', action:openNotesModal },
   { keys:['música','musica','player','tocar'], label:'♫ Música', action:()=>{ closeModal(); scrollToSection('sectionMusica'); } },
   { keys:['clima','tempo','previsão','previsao','chuva'], label:'☁ Clima', action:openWeatherModal },
@@ -4658,7 +4749,7 @@ function runSearch(q){
     if(el.textContent.toLowerCase().includes(q)) results.push({label:'◎ Hábito: '+el.textContent, action:()=>{ closeModal(); scrollToSection('sectionHabitos'); }});
   });
   todaySchedule.forEach(it=>{ if(it.name.toLowerCase().includes(q)) results.push({label:'📅 '+it.name, action:()=>{ closeModal(); scrollToSection('sectionHoje'); }}); });
-  transactions.forEach(t=>{ if(t.name.toLowerCase().includes(q)) results.push({label:'💰 Transação: '+t.name, action:openFinanceModal}); });
+  transactions.forEach(t=>{ if(t.name.toLowerCase().includes(q)) results.push({label:'💰 Transação: '+t.name, action:()=>openFinanceModal()}); });
   medsList.forEach(m=>{ if(m.nome.toLowerCase().includes(q)) results.push({label:'💊 '+m.nome, action:openMedsModal}); });
   let notes = ''; try{ notes = localStorage.getItem('mc_quicknotes') || ''; }catch(e){}
   if(notes.toLowerCase().includes(q)) results.push({label:'▤ Encontrado em Notas rápidas', action:openNotesModal});
@@ -5100,7 +5191,7 @@ function renderQuickInfo(){
   document.getElementById('qClima').addEventListener('click', openWeatherModal);
   document.getElementById('qHumor').addEventListener('click', ()=> document.getElementById('writeDiaryBtn').click());
   document.getElementById('qLeitura').addEventListener('click', openReadingModal);
-  document.getElementById('qFinancas').addEventListener('click', openFinanceModal);
+  document.getElementById('qFinancas').addEventListener('click', ()=>openFinanceModal());
   document.getElementById('qTarefas').addEventListener('click', openTasksModal);
   document.getElementById('qFoco').addEventListener('click', ()=> scrollToSection('sectionHoje'));
   document.getElementById('qMusica').addEventListener('click', ()=> scrollToSection('sectionMusica'));
